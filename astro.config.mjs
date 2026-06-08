@@ -3,11 +3,11 @@ import { defineConfig } from 'astro/config';
 import tailwindcss from '@tailwindcss/vite';
 import sitemap from '@astrojs/sitemap';
 
-// NOTE: update `site` to the real production domain before launch —
-// canonical URLs, Open Graph tags, robots.txt and the sitemap all derive from it.
+// `site` drives canonical URLs, Open Graph tags, robots.txt and the sitemap.
+// Update this when a custom domain replaces the Vercel URL.
 // https://astro.build/config
 export default defineConfig({
-  site: 'https://meruclay.com',
+  site: 'https://meru-clay.vercel.app',
   integrations: [sitemap()],
   vite: {
     plugins: [tailwindcss()],

@@ -11,11 +11,11 @@ interface Props {
 const {
   title = 'Meru Clay — Tanzania’s first true clay tennis court in Arusha',
   description = 'Meru Clay is a members’ tennis club at the foot of Mount Meru in Arusha, Tanzania — two championship clay courts, floodlit evening play, clay-specialist coaching and a junior academy. Book a court or a lesson on WhatsApp.',
-  image = '/images/hero-court.jpg',
+  image = '/images/og-image.jpg',
 } = Astro.props;
 
 // Absolute URLs derived from `site` in astro.config.mjs.
-const site = Astro.site ?? new URL('https://meruclay.com');
+const site = Astro.site ?? new URL('https://meru-clay.vercel.app');
 const canonical = new URL(Astro.url.pathname, site).href;
 const ogImage = new URL(image, site).href;
 const logoUrl = new URL('/apple-touch-icon.png', site).href;
@@ -121,8 +121,9 @@ const structuredData = {
     <meta property="og:description" content={description} />
     <meta property="og:url" content={canonical} />
     <meta property="og:image" content={ogImage} />
-    <meta property="og:image:width" content="2400" />
-    <meta property="og:image:height" content="1600" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
     <meta
       property="og:image:alt"
       content="A clay tennis court at Meru Clay with a player serving in the low Arusha sun"
