@@ -1,0 +1,154 @@
+---
+import '../styles/global.css';
+
+interface Props {
+  title?: string;
+  description?: string;
+  /** Path to the social share image, relative to site root. */
+  image?: string;
+}
+
+const {
+  title = 'Meru Clay — Tanzania’s first true clay tennis court in Arusha',
+  description = 'Meru Clay is a members’ tennis club at the foot of Mount Meru in Arusha, Tanzania — two championship clay courts, floodlit evening play, clay-specialist coaching and a junior academy. Book a court or a lesson on WhatsApp.',
+  image = '/images/hero-court.jpg',
+} = Astro.props;
+
+// Absolute URLs derived from `site` in astro.config.mjs.
+const site = Astro.site ?? new URL('https://meruclay.com');
+const canonical = new URL(Astro.url.pathname, site).href;
+const ogImage = new URL(image, site).href;
+const logoUrl = new URL('/apple-touch-icon.png', site).href;
+
+const geo = { lat: -3.31087, lng: 36.6397 };
+const phone = '+255782628288';
+
+const structuredData = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'WebSite',
+      '@id': `${site.origin}/#website`,
+      url: `${site.origin}/`,
+      name: 'Meru Clay',
+      description,
+      inLanguage: 'en',
+      publisher: { '@id': `${site.origin}/#club` },
+    },
+    {
+      '@type': 'SportsActivityLocation',
+      '@id': `${site.origin}/#club`,
+      name: 'Meru Clay Tennis Club',
+      alternateName: 'Meru Clay',
+      description,
+      url: `${site.origin}/`,
+      image: ogImage,
+      logo: logoUrl,
+      telephone: phone,
+      priceRange: 'TSh 15,000–480,000',
+      currenciesAccepted: 'TZS',
+      paymentAccepted: 'Cash, Mobile money',
+      address: {
+        '@type': 'PostalAddress',
+        streetAddress: 'Oltrumet, Ngaramtoni',
+        addressLocality: 'Arusha',
+        addressRegion: 'Arusha',
+        addressCountry: 'TZ',
+      },
+      geo: {
+        '@type': 'GeoCoordinates',
+        latitude: geo.lat,
+        longitude: geo.lng,
+      },
+      hasMap: 'https://www.google.com/maps?q=Meru+Clay+Tennis+Club,+Oltrumet',
+      areaServed: { '@type': 'City', name: 'Arusha' },
+      knowsLanguage: ['en', 'sw'],
+      openingHoursSpecification: [
+        {
+          '@type': 'OpeningHoursSpecification',
+          dayOfWeek: [
+            'Monday',
+            'Tuesday',
+            'Wednesday',
+            'Thursday',
+            'Friday',
+            'Saturday',
+            'Sunday',
+          ],
+          opens: '06:00',
+          closes: '21:00',
+        },
+      ],
+    },
+  ],
+};
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="generator" content={Astro.generator} />
+
+    <!-- Primary meta -->
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+    <meta
+      name="keywords"
+      content="clay tennis court, tennis club Arusha, tennis Tanzania, Mount Meru tennis, clay court coaching, junior tennis academy Arusha, Ngaramtoni tennis"
+    />
+    <meta name="author" content="Meru Clay Tennis Club" />
+    <meta name="theme-color" content="#13271D" />
+
+    <!-- Geo / local SEO -->
+    <meta name="geo.region" content="TZ-01" />
+    <meta name="geo.placename" content="Ngaramtoni, Arusha, Tanzania" />
+    <meta name="geo.position" content={`${geo.lat};${geo.lng}`} />
+    <meta name="ICBM" content={`${geo.lat}, ${geo.lng}`} />
+
+    <!-- Icons -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Meru Clay" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="2400" />
+    <meta property="og:image:height" content="1600" />
+    <meta
+      property="og:image:alt"
+      content="A clay tennis court at Meru Clay with a player serving in the low Arusha sun"
+    />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+    <meta name="twitter:image:alt" content="Clay tennis court at Meru Clay, Arusha" />
+
+    <!-- Performance: LCP hero + font hosts -->
+    <link rel="preload" as="image" href="/images/hero-court.jpg" fetchpriority="high" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,600;1,9..144,300;1,9..144,500;1,9..144,600&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Structured data -->
+    <script type="application/ld+json" set:html={JSON.stringify(structuredData)} />
+  </head>
+  <body class="antialiased">
+    <slot />
+  </body>
+</html>
