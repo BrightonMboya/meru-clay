@@ -3,10 +3,10 @@
  *
  * Three kinds of thing land on this timeline, from three places:
  *
- *   Classes and watering are *derived* — read straight out of
- *   src/lib/schedule.ts, the same file the booking engine reads. The desk
- *   therefore cannot disagree with what /book will sell, which is the whole
- *   reason that file exists.
+ *   Club sessions are *derived* — read straight out of src/lib/schedule.ts,
+ *   the same file the booking engine reads. The desk therefore cannot
+ *   disagree with what /book will sell, which is the whole reason that file
+ *   exists.
  *
  *   Dusk is a fact about the court, from `lastPlay`.
  *
@@ -20,8 +20,8 @@ import type { Reading } from '@/components/admin/ui';
 import type { Block } from '../blocks';
 import type { DeskBooking } from '../bookings';
 import { COURTS, lastPlay } from '../availability';
-import { DAILY_BLOCKS, classesOn } from '../schedule';
-import { CLOSE_MIN, DUSK_MIN, OPEN_MIN, fmtTime24, overlaps, weekdayOf } from '../time';
+import { classKey, classesOn } from '../schedule';
+import { CLOSE_MIN, DURATIONS, DUSK_MIN, OPEN_MIN, fmtTime24, overlaps, weekdayOf } from '../time';
 
 /** What a block on the timeline is, which decides how it is painted. */
 export type EntryKind =
@@ -31,8 +31,6 @@ export type EntryKind =
   | 'hold'
   /** A club class or clinic, from the weekly schedule. */
   | 'class'
-  /** Courts being watered. */
-  | 'watering'
   /** The club has taken the court off the market — rain, resurfacing, a tie. */
   | 'closed'
   /** Past dusk on the court with no floodlights. */
@@ -117,25 +115,16 @@ export type DeskSource = {
   isToday: boolean;
   /** Court-hours sold, keyed by ISO date. Covers at least the week around `date`. */
   hoursByDay: Record<string, number>;
+  /** How many are signed up to each class on `date`, keyed by `classKey`. */
+  enrolments: Record<string, number>;
 };
 
 const DOW_LABELS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 
-/**
- * ⚠️ DEMO. How many players are signed up to each class. Class enrolment has
- * no table yet — the weekly schedule is code, not data — so these stand in.
- * They affect only the second line of a class block.
- */
-const SAMPLE_CLASS_SIZES: Record<string, number> = {
-  'Teens lesson': 8,
-  'Women clinic': 9,
-  'Mixed clinic': 11,
-  'Pre-teens lesson': 7,
-  'Juniors lesson': 9,
-  'Tots lesson': 6,
-  'Women social': 10,
-  'Mixed social': 12,
-};
+/** The class's second line. An empty class says so rather than reading "0 booked". */
+function signedUp(count = 0): string {
+  return count === 0 ? 'nobody signed up yet' : `${count} booked`;
+}
 
 /** 60 -> "1 hr", 90 -> "1.5 hr" */
 function fmtDuration(minutes: number): string {
@@ -147,6 +136,20 @@ function fmtDuration(minutes: number): string {
 function fmtCountdown(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
+/**
+ * A sum of shillings, short enough to sit in a reading.
+ *
+ * Whole thousands lose their zeros, which is what the club's prices are. Any
+ * other sum keeps a decimal rather than rounding money out of sight, and one
+ * below a thousand — nothing taken yet, or a part payment — is printed in
+ * full: "0k" is not a figure anybody recognises.
+ */
+function fmtMoney(amount: number): string {
+  if (amount < 1000) return String(amount);
+  const thousands = amount / 1000;
+  return `${Number.isInteger(thousands) ? thousands : thousands.toFixed(1)}k`;
 }
 
 /** "06:30–07:30" */
@@ -174,7 +177,7 @@ export function weekDates(isoDate: string): string[] {
 
 /** Everything on both courts for `src.date`, ready to render. */
 export function deskDay(src: DeskSource): Desk {
-  const { date, now, epochMs, bookings, blocks } = src;
+  const { date, now, epochMs, bookings, blocks, enrolments } = src;
   const weekday = weekdayOf(date);
   const classes = classesOn(weekday);
   const entries: Entry[] = [];
@@ -196,26 +199,11 @@ export function deskDay(src: DeskSource): Desk {
       end: c.end,
       kind: 'class',
       title: c.name,
-      detail: [fmtSpan(c.start, c.end), c.age, `${SAMPLE_CLASS_SIZES[c.name] ?? 8} booked`]
+      detail: [fmtSpan(c.start, c.end), c.age, signedUp(enrolments[classKey(c.court, c.start)])]
         .filter(Boolean)
         .join(' · '),
       badge: displaced ? 'MOVED OFF CT 1' : undefined,
     });
-  }
-
-  // Watering blocks both courts.
-  for (const b of DAILY_BLOCKS) {
-    for (const court of COURTS) {
-      entries.push({
-        id: `block-${court.id}-${b.start}`,
-        court: court.id,
-        start: b.start,
-        end: b.end,
-        kind: 'watering',
-        title: b.reason.toUpperCase(),
-        detail: '',
-      });
-    }
   }
 
   // Closures the club has drawn over the day. A closure covering every court
@@ -290,7 +278,9 @@ export function deskDay(src: DeskSource): Desk {
         ? `holding · ${b.expires_at ? fmtCountdown(b.expires_at - epochMs) : '0:00'} left`
         : past
           ? `played · ${fmtDuration(b.end_min - b.start_min)}`
-          : `${b.phone} · ${fmtDuration(b.end_min - b.start_min)}`,
+          : // A walk-in may have given no number, and an empty one must not
+            // leave the row opening on a separator.
+            [b.phone, fmtDuration(b.end_min - b.start_min)].filter(Boolean).join(' · '),
       court: b.court_id,
       past,
       holding,
@@ -329,12 +319,19 @@ export function deskDay(src: DeskSource): Desk {
     },
     {
       label: 'Next free',
-      value: nextFree === null ? '—' : fmtTime24(nextFree),
-      detail: nextFree === null ? 'nothing left today' : 'both courts',
+      // A court that is free this minute reads as free this minute. Printing
+      // the clock time instead ("15:03") looks like an appointment.
+      value: nextFree === null ? '—' : nextFree.start <= now ? 'Now' : fmtTime24(nextFree.start),
+      detail:
+        nextFree === null
+          ? 'nothing left today'
+          : nextFree.courts.length === COURTS.length
+            ? 'both courts'
+            : `court ${nextFree.courts[0]}`,
     },
     {
       label: 'Taken today',
-      value: `${Math.round(taken / 1000)}k`,
+      value: fmtMoney(taken),
       detail: `TSh · ${owed} still to pay`,
     },
   ];
@@ -378,20 +375,48 @@ export function deskDay(src: DeskSource): Desk {
 }
 
 /**
- * The next half-hour step, at or after `from`, that is free on every court.
+ * When a court next comes free, at or after `from`, and which courts they are.
+ *
+ * Two things this has to get right, both of which cost the club a booking
+ * when it does not:
+ *
+ *   `from` is itself a candidate. A court standing empty at 15:03 is free at
+ *   15:03; rounding up to the next half hour told the desk to turn away a
+ *   player already at the counter. Only the times *after* now fall back to
+ *   the half-hour grid, because that is what the booking form offers.
+ *
+ *   One free court is enough. Court 2 has no floodlights, so insisting both
+ *   were free made the desk report "nothing left today" from a quarter to six
+ *   every evening, while court 1 was bookable for another three hours.
+ *
+ * The window tested is the shortest session the club sells: a gap too short
+ * to book is not a court coming free.
+ *
  * Walks the grid rather than merging intervals — 30 steps, and it reads.
  */
-function findNextFree(entries: Entry[], from: number): number | null {
-  for (let t = Math.max(OPEN_MIN, Math.ceil(from / 30) * 30); t < CLOSE_MIN; t += 30) {
-    const clear = COURTS.every((court) => {
-      if (t + 30 > lastPlay(court.id)) return false;
+function findNextFree(
+  entries: Entry[],
+  from: number,
+): { start: number; courts: number[] } | null {
+  const session = Math.min(...DURATIONS);
+
+  for (const t of startTimes(Math.max(OPEN_MIN, from))) {
+    const free = COURTS.filter((court) => {
+      if (t + session > lastPlay(court.id)) return false;
       return !entries.some(
-        (e) => e.court === court.id && e.kind !== 'dark' && overlaps(t, t + 30, e.start, e.end),
+        (e) =>
+          e.court === court.id && e.kind !== 'dark' && overlaps(t, t + session, e.start, e.end),
       );
     });
-    if (clear) return t;
+    if (free.length > 0) return { start: t, courts: free.map((c) => c.id) };
   }
   return null;
+}
+
+/** `from`, then every half-hour step after it, to close of play. */
+function* startTimes(from: number): Generator<number> {
+  yield from;
+  for (let t = Math.floor(from / 30) * 30 + 30; t < CLOSE_MIN; t += 30) yield t;
 }
 
 export type CourtStatus = { name: string; status: string; free: boolean };

@@ -106,8 +106,8 @@ export default function CourtDesk({ initial }: { initial: Desk }) {
   });
 
   /** Switching day closes whatever was open — it belonged to the old day. */
-  function goto(days: number) {
-    setDate((d) => addDays(d, days));
+  function show(iso: string) {
+    setDate(iso);
     setPanel(null);
     setSelected(null);
     act.reset();
@@ -123,38 +123,28 @@ export default function CourtDesk({ initial }: { initial: Desk }) {
     setPanel((p) => (p === which ? null : which));
   }
 
-  if (!deskDay) {
-    return (
-      <Screen gap={26}>
-        <Head
-          title="Court desk"
-          day={{
-            label: fmtDeskDay(date),
-            onPrev: () => goto(-1),
-            onNext: () => goto(1),
-          }}
-        />
-        <p className="text-[15px] text-neutral-500">
-          {query.isError ? 'Could not load that day.' : 'Loading the day…'}
-        </p>
-      </Screen>
-    );
-  }
-
   return (
     <Screen gap={26}>
+      {/* The head is the same shape whether or not the day has arrived.
+          Dropping the action while a day loads would take the primary button
+          out of the layout and pull everything under it upwards — precisely
+          when the operator is reaching for it. */}
       <Head
         title="Court desk"
         day={{
-          label: fmtDeskDay(deskDay.date),
-          onPrev: () => goto(-1),
-          onNext: () => goto(1),
+          label: fmtDeskDay(date),
+          date,
+          onPrev: () => show(addDays(date, -1)),
+          onNext: () => show(addDays(date, 1)),
+          onPick: show,
         }}
         actions={
           <Btn
             variant="primary"
             icon={icons.plus}
             pressed={panel === 'add'}
+            // There is nothing to add a booking to until the day is on screen.
+            disabled={!deskDay}
             onClick={() => togglePanel('add')}
           >
             Add a booking
@@ -162,60 +152,68 @@ export default function CourtDesk({ initial }: { initial: Desk }) {
         }
       />
 
-      {panel === 'add' && (
-        <AddBookingForm
-          date={deskDay.date}
-          busy={add.isPending}
-          error={add.error}
-          // Reopened after a refusal, the form comes back as it was left.
-          defaults={add.isError ? add.variables : undefined}
-          onClose={() => setPanel(null)}
-          onSubmit={(v) => add.mutate({ ...v, date: deskDay.date })}
-        />
-      )}
-
-      {selected && (
-        <ActionSheet
-          selected={selected}
-          busy={act.isPending || reopen.isPending}
-          error={act.error ?? reopen.error}
-          onClose={() => setSelected(null)}
-          onAct={(action) =>
-            selected.kind === 'booking' && act.mutate({ id: selected.id, action })
-          }
-          onReopen={() => selected.kind === 'closure' && reopen.mutate(selected.id)}
-        />
-      )}
-
-      <Readings readings={deskDay.stats} />
-
-      <div className="flex w-full flex-col items-start gap-10 pt-2 xl:flex-row">
-        <DayTimeline
-          entries={deskDay.entries}
-          now={deskDay.now}
-          courts={deskDay.courts}
-          onPick={(entry) => {
-            const next = fromEntry(entry, deskDay.arrivals);
-            if (!next) return;
-            setPanel(null);
-            act.reset();
-            reopen.reset();
-            setSelected(next);
-          }}
-        />
-
-        {/* The rail only exists when there is something to decide; with no
-            hold waiting, the two courts take the whole width. */}
-        {deskDay.needsYou && (
-          <div className="flex w-full shrink-0 flex-col gap-[34px] xl:w-[300px]">
-            <NeedsYou
-              hold={deskDay.needsYou}
-              busy={act.isPending}
-              onAct={(action) => act.mutate({ id: deskDay.needsYou!.id, action })}
+      {!deskDay ? (
+        <p className="text-[15px] text-neutral-500">
+          {query.isError ? 'Could not load that day.' : 'Loading the day…'}
+        </p>
+      ) : (
+        <>
+          {panel === 'add' && (
+            <AddBookingForm
+              date={deskDay.date}
+              busy={add.isPending}
+              error={add.error}
+              // Reopened after a refusal, the form comes back as it was left.
+              defaults={add.isError ? add.variables : undefined}
+              onClose={() => setPanel(null)}
+              onSubmit={(v) => add.mutate({ ...v, date: deskDay.date })}
             />
+          )}
+
+          {selected && (
+            <ActionSheet
+              selected={selected}
+              busy={act.isPending || reopen.isPending}
+              error={act.error ?? reopen.error}
+              onClose={() => setSelected(null)}
+              onAct={(action) =>
+                selected.kind === 'booking' && act.mutate({ id: selected.id, action })
+              }
+              onReopen={() => selected.kind === 'closure' && reopen.mutate(selected.id)}
+            />
+          )}
+
+          <Readings readings={deskDay.stats} />
+
+          <div className="flex w-full flex-col items-start gap-10 pt-2 xl:flex-row">
+            <DayTimeline
+              entries={deskDay.entries}
+              now={deskDay.now}
+              courts={deskDay.courts}
+              onPick={(entry) => {
+                const next = fromEntry(entry, deskDay.arrivals);
+                if (!next) return;
+                setPanel(null);
+                act.reset();
+                reopen.reset();
+                setSelected(next);
+              }}
+            />
+
+            {/* The rail only exists when there is something to decide; with no
+                hold waiting, the two courts take the whole width. */}
+            {deskDay.needsYou && (
+              <div className="flex w-full shrink-0 flex-col gap-[34px] xl:w-[300px]">
+                <NeedsYou
+                  hold={deskDay.needsYou}
+                  busy={act.isPending}
+                  onAct={(action) => act.mutate({ id: deskDay.needsYou!.id, action })}
+                />
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </>
+      )}
     </Screen>
   );
 }

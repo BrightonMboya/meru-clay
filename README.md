@@ -49,7 +49,7 @@ All static, all `noindex`, all inside the shell in `app/admin/layout.tsx`.
 | ------------------------------- | ----------------------------------------- |
 | `/admin`                        | Court desk — both courts' day to scale    |
 | `/admin/players`                | The roster, by level and ladder position  |
-| `/admin/players/new`            | Add a member                              |
+| `/admin/players/new`            | Add a member or a coach                   |
 | `/admin/matches`                | Challenges, and the fixtures on the books |
 | `/admin/matches/new`            | Record a result                           |
 | `/admin/tournaments`            | What we host, the draw, and away trips    |
@@ -95,8 +95,11 @@ src/
     availability.ts         # occupancy + freeSlots
     bookings.ts             # storage for bookings  ⚠️ in memory
     notify.ts               # WhatsApp + email, best-effort
-    admin/                  # one module per screen's data — all ⚠️ DEMO
-      desk.ts · players.ts · matches.ts · tournaments.ts · leads.ts · whatsapp.ts
+    players.ts              # storage for the roster
+    roster.ts               # levels, roles, availability — shared by schema and UI
+    admin/                  # one module per screen's data
+      desk.ts · players.ts  #   …these two are real, from the database
+      matches.ts · tournaments.ts · leads.ts · whatsapp.ts   # ⚠️ still DEMO
 migrations/                 # SQL schema, kept for the Supabase port
 public/images/              # hero, court, and CTA photography
 ```

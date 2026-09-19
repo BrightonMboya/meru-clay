@@ -204,20 +204,34 @@ export default function Pricing() {
               </span>
               {/* mobile: sessions in a row-wrap grid; desktop: stacked column */}
               <div className="grid grid-cols-2 gap-x-4 sm:grid-cols-3 md:grid-cols-1 md:gap-x-0">
-                {col.rows.map((row, i) => (
-                  <div
-                    key={`${row.name}-${i}`}
-                    className="flex flex-col gap-0.5 border-t border-pine/10 py-3 md:border-t"
-                  >
-                    <span className="text-[12px] font-semibold tracking-[0.02em] text-[#3C3F38]">
-                      {row.time}
+                {col.rows.length === 0 ? (
+                  /* A day with no club session is not an empty day — both
+                     courts are open from six to nine and can be booked by the
+                     hour. Saying so is the point of the column. */
+                  <div className="flex flex-col gap-0.5 border-t border-pine/10 py-3">
+                    <span className="text-[12px] font-semibold tracking-[0.02em] text-[#9AA39B]">
+                      6:00 AM – 9:00 PM
                     </span>
-                    <span className="font-display text-[15px] italic leading-[18px] text-[#1B1C18]">
-                      {row.name}
+                    <span className="font-display text-[15px] italic leading-[18px] text-[#7E8C84]">
+                      Courts open
                     </span>
-                    {row.age && <span className="text-[12px] text-[#9AA39B]">{row.age}</span>}
                   </div>
-                ))}
+                ) : (
+                  col.rows.map((row, i) => (
+                    <div
+                      key={`${row.name}-${i}`}
+                      className="flex flex-col gap-0.5 border-t border-pine/10 py-3 md:border-t"
+                    >
+                      <span className="text-[12px] font-semibold tracking-[0.02em] text-[#3C3F38]">
+                        {row.time}
+                      </span>
+                      <span className="font-display text-[15px] italic leading-[18px] text-[#1B1C18]">
+                        {row.name}
+                      </span>
+                      {row.age && <span className="text-[12px] text-[#9AA39B]">{row.age}</span>}
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           ))}

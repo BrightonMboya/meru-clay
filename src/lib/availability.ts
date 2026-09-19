@@ -6,7 +6,7 @@
  * what is already taken. The whole engine is `freeSlots` below.
  */
 
-import { classesOn, DAILY_BLOCKS } from './schedule';
+import { classesOn } from './schedule';
 import {
   CLOSE_MIN,
   DUSK_MIN,
@@ -82,12 +82,6 @@ export function occupancy(
     const courts = withCoach ? everyCourt : [c.court];
     for (const court of courts) {
       out.push({ court, start: c.start, end: c.end, reason: c.name });
-    }
-  }
-
-  for (const b of DAILY_BLOCKS) {
-    for (const court of COURTS) {
-      out.push({ court: court.id, start: b.start, end: b.end, reason: b.reason });
     }
   }
 

@@ -15,6 +15,41 @@
       "when": 1789736743654,
       "tag": "0001_seed_courts",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789818006691,
+      "tag": "0002_class_enrolments",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789821184798,
+      "tag": "0003_players",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789821244798,
+      "tag": "0004_seed_players",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789821304798,
+      "tag": "0005_members_paid",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789828420927,
+      "tag": "0006_tranquil_firedrake",
+      "breakpoints": true
     }
   ]
 }

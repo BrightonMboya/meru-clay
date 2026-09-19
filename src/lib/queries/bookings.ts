@@ -11,6 +11,7 @@
 
 import { queryOptions } from '@tanstack/react-query';
 import type { Slot } from '@/lib/availability';
+import { getJson } from './http';
 
 export type AvailabilityQuery = { date: string; duration: number; coach: boolean };
 
@@ -20,20 +21,6 @@ export type AvailabilityPayload = {
   coach: boolean;
   slots: Slot[];
 };
-
-async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    // Carry the server's own wording and status through to the caller: a 409
-    // means "someone beat you to it" and needs different UI to a 500.
-    throw Object.assign(new Error((body as { error?: string }).error ?? `HTTP ${res.status}`), {
-      status: res.status,
-      body,
-    });
-  }
-  return body as T;
-}
 
 export const availability = {
   key: ({ date, duration, coach }: AvailabilityQuery) =>
@@ -91,9 +78,8 @@ export function slotsFromError(err: unknown): Slot[] | null {
   return body?.slots ?? null;
 }
 
-export function statusOf(err: unknown): number | undefined {
-  return (err as { status?: number } | undefined)?.status;
-}
+/** Re-exported: callers here have always asked this module for it. */
+export { statusOf } from './http';
 
 // ── The court desk ──────────────────────────────────────────────────────────
 

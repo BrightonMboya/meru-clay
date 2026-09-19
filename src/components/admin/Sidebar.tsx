@@ -1,15 +1,35 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import {
+  Sidebar as SidebarRoot,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarRail,
+  SidebarSeparator,
+  SidebarTrigger,
+} from '@/components/ui/sidebar';
 import type { CourtStatus } from '@/lib/admin/desk';
 
 /**
- * The club office nav. Fixed-width icon and badge slots either side of the
- * label keep every row's three columns in the same vertical lanes, whether or
- * not that row has a count.
+ * The club office nav. The icon sits in a fixed-width slot so every row's
+ * label starts in the same vertical lane.
+ *
+ * The rows carried a clay count badge in the design — a 1 on the court desk,
+ * a 5 on matches, a 2 on leads. They were drawn numbers with nothing behind
+ * them, and a badge that does not count anything is worse than no badge: it
+ * reads as unattended work. Put one back when there is a figure to put in it.
  */
-type NavItem = { label: string; href: string; count?: number; icon: React.ReactNode };
+type NavItem = { label: string; href: string; icon: React.ReactNode };
 
 const iconProps = {
   width: 16,
@@ -28,7 +48,6 @@ const groups: { heading: string; items: NavItem[] }[] = [
       {
         label: 'Court desk',
         href: '/admin',
-        count: 1,
         icon: (
           <svg {...iconProps}>
             <rect x="1.4" y="2.6" width="13.2" height="11" rx="1.6" />
@@ -58,7 +77,6 @@ const groups: { heading: string; items: NavItem[] }[] = [
       {
         label: 'Matches',
         href: '/admin/matches',
-        count: 5,
         icon: (
           <svg {...iconProps}>
             <path d="M2.2 3.4h4.2v9.2H2.2zM9.6 3.4h4.2v9.2H9.6z" strokeLinejoin="round" />
@@ -85,7 +103,6 @@ const groups: { heading: string; items: NavItem[] }[] = [
       {
         label: 'Leads',
         href: '/admin/leads',
-        count: 2,
         icon: (
           <svg {...iconProps}>
             <rect x="1.6" y="3.4" width="12.8" height="9.2" rx="1.4" />
@@ -110,6 +127,20 @@ const groups: { heading: string; items: NavItem[] }[] = [
 const heading =
   'px-2 pb-2 text-[11px] font-semibold uppercase leading-[14px] tracking-[0.14em] text-neutral-400';
 
+/**
+ * The rail collapses.
+ *
+ * Expanded it is the nav as drawn — 248px, a crest, three labelled groups,
+ * the courts and whoever is on the desk. Collapsed it is a 48px strip of
+ * icons: the labels move into tooltips, the court readings and the
+ * operator's name fold away, and the crest gives its place to the toggle so
+ * there is still something to press. The state is shadcn's, which means it
+ * also answers ⌘B, the drag rail on the edge, and a cookie that remembers
+ * the choice across page loads — see `defaultOpen` in the admin layout.
+ *
+ * On a phone none of that applies: the same markup renders as a sheet over
+ * the page, opened by the trigger in the inset's top bar.
+ */
 export default function Sidebar({
   courts,
   operator,
@@ -120,118 +151,136 @@ export default function Sidebar({
   const pathname = usePathname();
 
   return (
-    <aside className="flex w-[248px] shrink-0 flex-col gap-[30px] self-stretch border-r border-neutral-200 bg-white pb-[22px] pt-[26px]">
-      {/* Brand */}
-      <div className="flex items-center gap-[11px] px-5">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-clay">
-          <span className="text-[16px] font-bold leading-5 tracking-[-0.02em] text-white">M</span>
-        </div>
-        <div className="flex flex-col gap-px">
-          <span className="text-[15px] font-semibold leading-[18px] tracking-[-0.01em] text-pine">
-            Meru Clay
-          </span>
-          <span className="font-sans text-[11px] font-medium uppercase leading-[14px] tracking-[0.12em] text-neutral-500">
-            Club office
-          </span>
-        </div>
-      </div>
-
-      {/* Nav */}
-      {groups.map((group) => (
-        <nav key={group.heading} className="flex flex-col gap-0.5 px-3">
-          <div className={heading}>{group.heading}</div>
-          {group.items.map((item) => {
-            const active = pathname === item.href;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={active ? 'page' : undefined}
-                className={`flex items-center gap-[10px] rounded-md px-2 py-[9px] transition-colors ${
-                  active ? 'bg-neutral-100' : 'hover:bg-neutral-50'
-                }`}
-              >
-                <span
-                  className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center ${
-                    active ? 'text-pine' : 'text-neutral-400'
-                  }`}
-                >
-                  {item.icon}
-                </span>
-                <span
-                  className={`grow text-[15px] leading-[18px] ${
-                    active ? 'font-semibold text-pine' : 'font-medium text-neutral-600'
-                  }`}
-                >
-                  {item.label}
-                </span>
-                {/* Kept at a fixed width even when empty, so the labels and
-                    counts across every row share two vertical lanes. */}
-                <span className="flex h-[18px] w-[22px] shrink-0 items-center justify-end">
-                  {item.count !== undefined && (
-                    <span className="flex h-[18px] min-w-[22px] items-center justify-center rounded-full bg-clay px-1.5 text-[11px] font-semibold leading-[14px] text-white">
-                      {item.count}
-                    </span>
-                  )}
-                </span>
-              </Link>
-            );
-          })}
-        </nav>
-      ))}
-
-      <div className="min-h-10 grow" />
-
-      {/* Courts right now */}
-      <div className="flex flex-col gap-[9px] px-5 pb-[18px]">
-        <div className="text-[11px] font-semibold uppercase leading-[14px] tracking-[0.14em] text-neutral-400">
-          Courts right now
-        </div>
-        {courts.map((court) => (
-          <div key={court.name} className="flex items-center gap-2">
-            <span
-              className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                court.free ? 'bg-pine' : 'bg-neutral-300'
-              }`}
-            />
-            <span className="grow text-[13px] font-medium leading-4 text-neutral-600">
-              {court.name} &nbsp;·&nbsp; {court.status}
+    <SidebarRoot collapsible="icon">
+      <SidebarHeader className="pt-[22px] group-data-[collapsible=icon]:pt-3">
+        <div className="flex items-center gap-[11px] px-2 group-data-[collapsible=icon]:px-0">
+          {/* Both of these give way to the toggle when the rail is 48px
+              wide — the crest is a detailed illustration and turns to noise
+              at icon size, and a brand nobody can read is not a brand. */}
+          <Image
+            src="/images/meru-logo.png"
+            alt=""
+            width={34}
+            height={40}
+            priority
+            className="h-10 w-auto shrink-0 group-data-[collapsible=icon]:hidden"
+          />
+          <div className="flex min-w-0 grow flex-col gap-px group-data-[collapsible=icon]:hidden">
+            <span className="truncate text-[15px] font-semibold leading-[18px] tracking-[-0.01em] text-pine">
+              Meru Clay
+            </span>
+            <span className="truncate font-sans text-[11px] font-medium uppercase leading-[14px] tracking-[0.12em] text-neutral-500">
+              Club office
             </span>
           </div>
-        ))}
-      </div>
+          <SidebarTrigger className="shrink-0 text-neutral-400 hover:text-pine group-data-[collapsible=icon]:mx-auto" />
+        </div>
+      </SidebarHeader>
 
-      {/* Operator */}
-      <button
-        type="button"
-        className="flex items-center gap-[10px] border-t border-neutral-200 px-5 pt-4 text-left"
-      >
-        <span className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full bg-neutral-100 text-[11px] font-semibold leading-[14px] tracking-[0.04em] text-neutral-600">
-          {operator.initials}
-        </span>
-        <span className="flex grow flex-col gap-px">
-          <span className="text-[13px] font-semibold leading-4 text-pine">{operator.name}</span>
-          <span className="text-[11px] font-medium leading-[14px] tracking-[0.04em] text-neutral-500">
-            {operator.role}
-          </span>
-        </span>
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 14 14"
-          fill="none"
-          className="shrink-0 text-neutral-400"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <path
-            d="M4.4 5.6 7 8.2l2.6-2.6"
-            stroke="currentColor"
-            strokeWidth={1.3}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </button>
-    </aside>
+      <SidebarContent className="gap-[18px]">
+        {groups.map((group) => (
+          <SidebarGroup key={group.heading} className="py-0">
+            <SidebarGroupLabel className={heading}>{group.heading}</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {group.items.map((item) => {
+                  const active = pathname === item.href;
+                  return (
+                    <SidebarMenuItem key={item.href}>
+                      {/* The tooltip only shows itself while collapsed —
+                          `SidebarMenuButton` hides it the rest of the time. */}
+                      <SidebarMenuButton asChild isActive={active} tooltip={item.label}>
+                        <Link href={item.href} aria-current={active ? 'page' : undefined}>
+                          <span
+                            className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center ${
+                              active ? 'text-pine' : 'text-neutral-400'
+                            }`}
+                          >
+                            {item.icon}
+                          </span>
+                          <span
+                            className={`grow text-[15px] leading-[18px] ${
+                              active ? 'font-semibold text-pine' : 'font-medium text-neutral-600'
+                            }`}
+                          >
+                            {item.label}
+                          </span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
+      </SidebarContent>
+
+      <SidebarFooter className="gap-0 p-0 pb-[22px]">
+        {/* Courts right now. A reading, not a control, so there is nothing
+            useful to keep at icon width — it folds away entirely. */}
+        <div className="flex flex-col gap-[9px] px-5 pb-[18px] group-data-[collapsible=icon]:hidden">
+          <div className={heading.replace('px-2 pb-2 ', '')}>Courts right now</div>
+          {courts.map((court) => (
+            <div key={court.name} className="flex items-center gap-2">
+              <span
+                className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                  court.free ? 'bg-pine' : 'bg-neutral-300'
+                }`}
+              />
+              <span className="grow text-[13px] font-medium leading-4 text-neutral-600">
+                {court.name} &nbsp;·&nbsp; {court.status}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        <SidebarSeparator className="mx-0 w-full" />
+
+        <SidebarMenu className="px-2 pt-3 group-data-[collapsible=icon]:px-1">
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              size="lg"
+              tooltip={`${operator.name} · ${operator.role}`}
+              // `size="lg"` is a 48px row, which is taller than the collapsed
+              // rail is wide; without clamping it the initials and the name
+              // spill out past the edge.
+              className="gap-[10px] group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:justify-center"
+            >
+              <span className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full bg-neutral-100 text-[11px] font-semibold leading-[14px] tracking-[0.04em] text-neutral-600 group-data-[collapsible=icon]:h-7 group-data-[collapsible=icon]:w-7">
+                {operator.initials}
+              </span>
+              <span className="flex min-w-0 grow flex-col gap-px group-data-[collapsible=icon]:hidden">
+                <span className="truncate text-[13px] font-semibold leading-4 text-pine">
+                  {operator.name}
+                </span>
+                <span className="truncate text-[11px] font-medium leading-[14px] tracking-[0.04em] text-neutral-500">
+                  {operator.role}
+                </span>
+              </span>
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 14 14"
+                fill="none"
+                className="shrink-0 text-neutral-400 group-data-[collapsible=icon]:hidden"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M4.4 5.6 7 8.2l2.6-2.6"
+                  stroke="currentColor"
+                  strokeWidth={1.3}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
+
+      {/* The draggable edge: click or drag it to toggle. */}
+      <SidebarRail />
+    </SidebarRoot>
   );
 }

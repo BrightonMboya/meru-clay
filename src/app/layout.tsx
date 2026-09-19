@@ -61,10 +61,15 @@ export const metadata: Metadata = {
     'max-image-preview': 'large',
     'max-snippet': -1,
   },
+  // The club crest, on its pine ground. All raster: the mark is a detailed
+  // illustration, so there is no SVG to offer — and an SVG entry would win
+  // over these in every browser that supports it.
   icons: {
     icon: [
-      { url: '/favicon.svg', type: 'image/svg+xml' },
       { url: '/favicon-32.png', type: 'image/png', sizes: '32x32' },
+      { url: '/favicon-48.png', type: 'image/png', sizes: '48x48' },
+      { url: '/icon-192.png', type: 'image/png', sizes: '192x192' },
+      { url: '/icon-512.png', type: 'image/png', sizes: '512x512' },
     ],
     apple: [{ url: '/apple-touch-icon.png', sizes: '180x180' }],
   },
@@ -126,7 +131,7 @@ const structuredData = {
       description,
       url: `${site.origin}/`,
       image: new URL('/images/og-image.jpg', site).href,
-      logo: new URL('/apple-touch-icon.png', site).href,
+      logo: new URL('/icon-512.png', site).href,
       telephone: phone,
       priceRange: 'TSh 15,000–480,000',
       currenciesAccepted: 'TZS',

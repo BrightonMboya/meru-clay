@@ -1,4 +1,8 @@
 @import 'tailwindcss';
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
 
 @theme {
   /* Fonts. `--font-*-src` are set by next/font in the root layout. */
@@ -39,4 +43,139 @@
   .font-display {
     font-family: var(--font-display);
   }
+
+  /* Tailwind v4's preflight drops v3's `button { cursor: pointer }` and lets
+     the browser default of `default` stand, which leaves every pill, chip and
+     card in the office looking inert under the mouse. Put it back here rather
+     than hanging a utility class on each of the fifty-odd buttons — the rule
+     is about what a button is, not about any one screen. `:not(:disabled)`
+     keeps a disabled control from claiming it can be pressed. */
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+  * {
+    @apply border-border outline-ring/50;
+  }
+}
+
+@theme inline {
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* shadcn's components read these, so this is where the office's palette
+   reaches them: a white panel, pine ink, neutral-200 hairlines and a clay
+   focus ring — the same values the hand-built parts in `ui.tsx` use, so a
+   <Select> sits beside a <Chip> without either looking imported. The `.dark`
+   block below is shadcn's default and stays inert: `@custom-variant dark`
+   above binds dark styles to a `.dark` ancestor, and the club has no dark
+   mode to add one. */
+:root {
+  --background: #ffffff;
+  --foreground: var(--color-pine);
+  --card: #ffffff;
+  --card-foreground: var(--color-pine);
+  --popover: #ffffff;
+  --popover-foreground: var(--color-pine);
+  /* Pine on cream — the same fill a chosen chip takes. */
+  --primary: var(--color-pine);
+  --primary-foreground: var(--color-cream);
+  --secondary: var(--color-neutral-100);
+  --secondary-foreground: var(--color-pine);
+  --muted: var(--color-neutral-100);
+  --muted-foreground: var(--color-neutral-500);
+  --accent: var(--color-neutral-100);
+  --accent-foreground: var(--color-pine);
+  --destructive: var(--color-clay);
+  --border: var(--color-neutral-200);
+  --input: var(--color-neutral-200);
+  --ring: var(--color-clay);
+  --chart-1: var(--color-pine);
+  --chart-2: var(--color-clay);
+  --chart-3: var(--color-stone);
+  --chart-4: var(--color-clay-light);
+  --chart-5: var(--color-mist);
+  /* 10px — the radius the office's cards already use. */
+  --radius: 0.625rem;
+  /* The office rail is white, not pine: it is the quiet edge of the room,
+     and the one dark surface on an admin screen is the free-to-play panel. */
+  --sidebar: #ffffff;
+  --sidebar-foreground: var(--color-pine);
+  --sidebar-primary: var(--color-pine);
+  --sidebar-primary-foreground: var(--color-cream);
+  --sidebar-accent: var(--color-neutral-100);
+  --sidebar-accent-foreground: var(--color-pine);
+  --sidebar-border: var(--color-neutral-200);
+  --sidebar-ring: var(--color-clay);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
 }

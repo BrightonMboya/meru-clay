@@ -1,7 +1,11 @@
 import type { Metadata } from 'next';
+import { cookies } from 'next/headers';
 import Sidebar from '@/components/admin/Sidebar';
+import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
+import { Toaster } from '@/components/ui/sonner';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { courtStatus } from '@/lib/admin/desk';
-import { loadDesk } from '@/lib/admin/load';
+import { loadDesk, loadOperator } from '@/lib/admin/load';
 
 /**
  * The club office shell: sidebar on the left, one scrolling column on the
@@ -27,15 +31,40 @@ export const dynamic = 'force-dynamic';
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   // `loadDesk` is request-memoised, so this shares its queries with the page.
-  const desk = await loadDesk();
+  const [desk, operator, jar] = await Promise.all([loadDesk(), loadOperator(), cookies()]);
+
+  // Whether the rail was left open, read on the server so a collapsed rail
+  // renders collapsed rather than flashing its full width and snapping shut
+  // once the client picks the cookie up. The name is shadcn's own.
+  const open = jar.get('sidebar_state')?.value !== 'false';
 
   return (
-    <div className="flex min-h-screen w-full bg-white font-ui text-pine">
-      <Sidebar
-        courts={courtStatus(desk)}
-        operator={{ initials: 'EK', name: 'Elias Kimaro', role: 'Head coach' }}
-      />
-      <main className="flex min-w-0 grow flex-col">{children}</main>
-    </div>
+    <TooltipProvider>
+      <SidebarProvider
+        defaultOpen={open}
+        className="bg-white font-ui text-pine"
+        // 248px, as drawn. shadcn's own default is 256.
+        style={{ '--sidebar-width': '15.5rem' } as React.CSSProperties}
+      >
+        {/* The operator row named a hard-coded coach who does not exist. Until
+            there is a sign-in it names the club's first coach instead — a
+            guess, but one drawn from the roster rather than from the mockup. */}
+        <Sidebar courts={courtStatus(desk)} operator={operator} />
+        <SidebarInset className="min-w-0">
+          {/* On a phone the rail is a sheet with nothing on screen to open it,
+              so the trigger lives here. Everything wider has the rail itself. */}
+          <div className="flex items-center gap-2 border-b border-neutral-200 px-3 py-2 md:hidden">
+            <SidebarTrigger className="text-neutral-500" />
+            <span className="text-[13px] font-semibold leading-4 text-pine">Club office</span>
+          </div>
+          {children}
+        </SidebarInset>
+        {/* `theme` is passed here rather than edited into the generated
+            component: it reads `next-themes`, which has no provider in this
+            app and would fall through to "system" — a dark toast over a white
+            office. The club has no dark mode. */}
+        <Toaster theme="light" position="bottom-right" />
+      </SidebarProvider>
+    </TooltipProvider>
   );
 }

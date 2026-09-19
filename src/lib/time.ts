@@ -94,6 +94,54 @@ export function fmtRange(start: number, end: number): string {
   return `${left} – ${fmtTime(end)}`;
 }
 
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+/** "2026-09-19" -> "September 2026". The calendar popover's heading. */
+export function fmtMonthYear(isoDate: string): string {
+  const d = new Date(`${isoDate}T00:00:00Z`);
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
+/**
+ * The same day-of-month `months` away, clamped to the end of a shorter month
+ * — stepping from 31 Jan lands on 28 Feb, not on 3 March.
+ */
+export function addMonths(isoDate: string, months: number): string {
+  const d = new Date(`${isoDate}T00:00:00Z`);
+  const day = d.getUTCDate();
+  d.setUTCDate(1);
+  d.setUTCMonth(d.getUTCMonth() + months);
+  const lastOfMonth = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+  d.setUTCDate(Math.min(day, lastOfMonth));
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Six weeks of ISO dates covering the month `isoDate` falls in, Monday first.
+ *
+ * Always 42 cells, so the calendar is the same height in every month and
+ * opening it never shoves the page around. The leading and trailing cells
+ * belong to the neighbouring months — `isSameMonth` tells them apart.
+ */
+export function monthGrid(isoDate: string): string[] {
+  const first = new Date(`${isoDate.slice(0, 7)}-01T00:00:00Z`);
+  // getUTCDay is 0 = Sunday; shift so Monday is the first column.
+  first.setUTCDate(first.getUTCDate() - ((first.getUTCDay() + 6) % 7));
+  return Array.from({ length: 42 }, (_, i) => {
+    const d = new Date(first);
+    d.setUTCDate(d.getUTCDate() + i);
+    return d.toISOString().slice(0, 10);
+  });
+}
+
+/** Do these two ISO dates fall in the same calendar month? */
+export function isSameMonth(a: string, b: string): boolean {
+  return a.slice(0, 7) === b.slice(0, 7);
+}
+
 /** Sat 20 Sep — short human label for the date picker. */
 export function fmtDayLabel(isoDate: string): { dow: string; day: string; mon: string } {
   const d = new Date(`${isoDate}T00:00:00Z`);

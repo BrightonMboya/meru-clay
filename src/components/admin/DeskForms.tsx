@@ -1,7 +1,16 @@
 'use client';
 
 import { useState } from 'react';
-import { Btn, Chip } from '@/components/admin/ui';
+import {
+  Btn,
+  Chip,
+  FormError,
+  INPUT,
+  PANEL,
+  PANEL_LABEL,
+  SELECT,
+  errorText,
+} from '@/components/admin/ui';
 import { COURTS } from '@/lib/availability';
 import type { Arrival, Entry } from '@/lib/admin/desk';
 import { CLOSE_MIN, DURATIONS, OPEN_MIN, STEP_MIN, fmtTime24 } from '@/lib/time';
@@ -11,27 +20,6 @@ const STEPS = Array.from(
   { length: (CLOSE_MIN - OPEN_MIN) / STEP_MIN + 1 },
   (_, i) => OPEN_MIN + i * STEP_MIN,
 );
-
-const panel = 'flex w-full flex-col gap-4 rounded-xl border border-neutral-200 bg-neutral-50 p-5';
-const label = 'text-[11px] font-bold tracking-[0.14em] text-neutral-500';
-const input =
-  'h-[38px] rounded-[9px] border border-neutral-200 bg-white px-3 text-[14px] text-pine outline-none focus:border-clay';
-const select = `${input} pr-8`;
-
-function Error_({ children }: { children: React.ReactNode }) {
-  return (
-    <p
-      role="alert"
-      className="rounded-[9px] border border-clay/40 bg-clay/10 px-3 py-2 text-[13px] text-[#9E4327]"
-    >
-      {children}
-    </p>
-  );
-}
-
-function message(err: unknown, fallback: string) {
-  return err instanceof Error ? err.message : fallback;
-}
 
 /**
  * Close a court.
@@ -61,9 +49,9 @@ export function CloseCourtForm({
   const bad = end <= start;
 
   return (
-    <section className={panel} aria-label="Close a court">
+    <section className={PANEL} aria-label="Close a court">
       <div className="flex items-baseline justify-between gap-4">
-        <h2 className={label}>CLOSE A COURT</h2>
+        <h2 className={PANEL_LABEL}>CLOSE A COURT</h2>
         <span className="text-[13px] text-neutral-500">{date}</span>
       </div>
 
@@ -85,7 +73,7 @@ export function CloseCourtForm({
         <label className="flex flex-col gap-1.5">
           <span className="text-[13px] text-neutral-600">From</span>
           <select
-            className={select}
+            className={SELECT}
             value={start}
             onChange={(e) => {
               const v = Number(e.target.value);
@@ -103,7 +91,7 @@ export function CloseCourtForm({
         </label>
         <label className="flex flex-col gap-1.5">
           <span className="text-[13px] text-neutral-600">Until</span>
-          <select className={select} value={end} onChange={(e) => setEnd(Number(e.target.value))}>
+          <select className={SELECT} value={end} onChange={(e) => setEnd(Number(e.target.value))}>
             {STEPS.filter((m) => m > start).map((m) => (
               <option key={m} value={m}>
                 {fmtTime24(m)}
@@ -114,7 +102,7 @@ export function CloseCourtForm({
         <label className="flex min-w-[180px] grow flex-col gap-1.5">
           <span className="text-[13px] text-neutral-600">Reason</span>
           <input
-            className={input}
+            className={INPUT}
             value={reason}
             maxLength={80}
             placeholder="Rain · resurfacing · tournament"
@@ -123,7 +111,7 @@ export function CloseCourtForm({
         </label>
       </div>
 
-      {error ? <Error_>{message(error, 'Could not close the court.')}</Error_> : null}
+      {error ? <FormError>{errorText(error, 'Could not close the court.')}</FormError> : null}
 
       <div className="flex flex-wrap items-center gap-2">
         <Btn
@@ -192,9 +180,9 @@ export function AddBookingForm({
   const [paid, setPaid] = useState(defaults?.paid ?? true);
 
   return (
-    <section className={panel} aria-label="Add a booking">
+    <section className={PANEL} aria-label="Add a booking">
       <div className="flex items-baseline justify-between gap-4">
-        <h2 className={label}>ADD A BOOKING</h2>
+        <h2 className={PANEL_LABEL}>ADD A BOOKING</h2>
         <span className="text-[13px] text-neutral-500">{date}</span>
       </div>
 
@@ -202,7 +190,7 @@ export function AddBookingForm({
         <label className="flex min-w-[170px] grow flex-col gap-1.5">
           <span className="text-[13px] text-neutral-600">Name</span>
           <input
-            className={input}
+            className={INPUT}
             value={name}
             maxLength={80}
             placeholder="Asha Mollel"
@@ -214,7 +202,7 @@ export function AddBookingForm({
             Phone <span className="text-neutral-400">optional</span>
           </span>
           <input
-            className={input}
+            className={INPUT}
             value={phone}
             inputMode="tel"
             placeholder="0782 628 288"
@@ -227,7 +215,7 @@ export function AddBookingForm({
         <label className="flex flex-col gap-1.5">
           <span className="text-[13px] text-neutral-600">Court</span>
           <select
-            className={select}
+            className={SELECT}
             value={court}
             onChange={(e) => setCourt(Number(e.target.value))}
           >
@@ -240,7 +228,7 @@ export function AddBookingForm({
         </label>
         <label className="flex flex-col gap-1.5">
           <span className="text-[13px] text-neutral-600">Start</span>
-          <select className={select} value={start} onChange={(e) => setStart(Number(e.target.value))}>
+          <select className={SELECT} value={start} onChange={(e) => setStart(Number(e.target.value))}>
             {STEPS.filter((m) => m < CLOSE_MIN).map((m) => (
               <option key={m} value={m}>
                 {fmtTime24(m)}
@@ -251,7 +239,7 @@ export function AddBookingForm({
         <label className="flex flex-col gap-1.5">
           <span className="text-[13px] text-neutral-600">Length</span>
           <select
-            className={select}
+            className={SELECT}
             value={duration}
             onChange={(e) => setDuration(Number(e.target.value))}
           >
@@ -273,7 +261,7 @@ export function AddBookingForm({
         </Chip>
       </div>
 
-      {error ? <Error_>{message(error, 'Could not save the booking.')}</Error_> : null}
+      {error ? <FormError>{errorText(error, 'Could not save the booking.')}</FormError> : null}
 
       <div className="flex flex-wrap items-center gap-2">
         <Btn
@@ -354,7 +342,7 @@ export function ActionSheet({
   const digits = selected.kind === 'booking' ? selected.phone.replace(/\D/g, '') : '';
 
   return (
-    <section className={panel} aria-label="Booking actions">
+    <section className={PANEL} aria-label="Booking actions">
       <div className="flex items-start justify-between gap-4">
         <div className="flex flex-col gap-1">
           <span className="text-[18px] font-medium leading-6 text-pine">{selected.title}</span>
@@ -365,7 +353,7 @@ export function ActionSheet({
         </Btn>
       </div>
 
-      {error ? <Error_>{message(error, 'That did not go through.')}</Error_> : null}
+      {error ? <FormError>{errorText(error, 'That did not go through.')}</FormError> : null}
 
       <div className="flex flex-wrap gap-2">
         {selected.kind === 'closure' ? (

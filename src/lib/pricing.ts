@@ -34,3 +34,46 @@ export function totalFor(duration: Duration, withCoach: boolean): number {
 export function fmtTsh(amount: number): string {
   return amount.toLocaleString('en-US');
 }
+
+/**
+ * Membership, in Tanzanian shillings.
+ *
+ * ⚠️ UNCONFIRMED, like COURT_HIRE above. These are the three tiers and the
+ * two prices drawn on the "Add a member" screen in the Paper file; the club's
+ * published price list has no membership section. Confirm before launch.
+ *
+ * `months` is what "mark them paid" advances `paid_until` by. Pay as you play
+ * has no term, which is what makes it the one tier that can never fall due.
+ */
+export const MEMBERSHIP_TIERS = {
+  monthly: {
+    label: 'Monthly',
+    fee: 90_000,
+    months: 1,
+    detail: 'Court time at member rate · rolls over',
+  },
+  term: {
+    label: 'Term',
+    fee: 240_000,
+    months: 3,
+    detail: 'Three months · two free coached hits',
+  },
+  payg: {
+    label: 'Pay as you play',
+    fee: 0,
+    months: 0,
+    detail: 'Visitor rate per booking · off the ladder',
+  },
+} as const;
+
+export const MEMBERSHIPS = ['monthly', 'term', 'payg'] as const;
+export type MembershipTier = (typeof MEMBERSHIPS)[number];
+
+export function isMembership(value: unknown): value is MembershipTier {
+  return typeof value === 'string' && (MEMBERSHIPS as readonly string[]).includes(value);
+}
+
+/** Only a tier with a term can lapse. */
+export function lapses(tier: MembershipTier): boolean {
+  return MEMBERSHIP_TIERS[tier].months > 0;
+}

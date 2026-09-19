@@ -24,9 +24,9 @@ export const dynamic = 'force-dynamic';
  *   - Email and phone are optional-ish: a walk-in may only give a first name.
  *
  * What it does NOT relax is what is actually in the way. The desk is checked
- * against the same occupancy /book is — other bookings, club classes, the
- * watering slot and any closure the desk itself drew — and is told which of
- * them is blocking, rather than being allowed to quietly book over a clinic.
+ * against the same occupancy /book is — other bookings, club sessions and
+ * any closure the desk itself drew — and is told which of them is blocking,
+ * rather than being allowed to quietly book over a session.
  * `createBooking` then takes the same advisory lock and overlap test on top.
  *
  * ⚠️ Staff endpoint. Nothing under /api/desk is authenticated yet; see the

@@ -53,8 +53,8 @@ export default function DayTimeline({
   courts: { id: number; name: string; note: string }[];
   /**
    * Called with a block the operator clicked. Only bookings and closures are
-   * actionable — a class or the watering slot is not something the desk
-   * decides, so those stay inert however they are clicked.
+   * actionable — a club session is not something the desk decides, so those
+   * stay inert however they are clicked.
    */
   onPick?: (entry: Entry) => void;
 }) {
@@ -192,19 +192,6 @@ function Block({ entry, onPick }: { entry: Entry; onPick?: (entry: Entry) => voi
           </span>
         )}
       </button>
-    );
-  }
-
-  if (entry.kind === 'watering') {
-    return (
-      <div
-        className="absolute left-[5px] right-[5px] flex items-center rounded-md border border-neutral-500/35 bg-neutral-500/12 px-3"
-        style={{ top, height }}
-      >
-        <span className="text-[11px] font-bold leading-[14px] tracking-[0.11em] text-neutral-600">
-          {entry.title}
-        </span>
-      </div>
     );
   }
 

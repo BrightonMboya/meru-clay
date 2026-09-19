@@ -14,6 +14,9 @@
 
 import Link from 'next/link';
 
+import DayNav from '@/components/admin/DayNav';
+import type { Level, MaybeLevel } from '@/lib/roster';
+
 /* ------------------------------------------------------------------ layout */
 
 /** The 40px gutter every screen's content sits in. */
@@ -34,7 +37,7 @@ export function Screen({ gap = 36, children }: { gap?: number; children: React.R
 /**
  * Title and one line of explanation, with the screen's actions opposite.
  * `day` is only for screens that are about a particular day — it puts the
- * date between two steppers, ahead of the actions.
+ * date between two steppers, ahead of the actions. See `DayNav`.
  */
 export function Head({
   title,
@@ -46,7 +49,14 @@ export function Head({
   title: string;
   /** Omitted on screens whose title already says everything. */
   blurb?: string;
-  day?: { label: string; onPrev?: () => void; onNext?: () => void };
+  day?: {
+    label: string;
+    /** The ISO date behind `label`. Set it, with `onPick`, for a calendar. */
+    date?: string;
+    onPrev?: () => void;
+    onNext?: () => void;
+    onPick?: (isoDate: string) => void;
+  };
   /** Where this screen came from — set on the screens that are a form. */
   back?: { label: string; href: string };
   actions?: React.ReactNode;
@@ -81,44 +91,11 @@ export function Head({
       </div>
       {(day || actions) && (
         <div className="flex shrink-0 flex-wrap items-center gap-[10px]">
-          {/* The day row is a fixed width with an arrow pinned to each end, so
-              stepping through the week never wraps the date onto a second line
-              or shuffles the arrows sideways as its length changes. */}
-          {day && (
-            <div className="flex w-[292px] max-w-full shrink-0 items-center justify-between gap-3">
-              <Stepper direction="prev" onClick={day.onPrev} />
-              <span className="min-w-0 grow whitespace-nowrap text-center text-[20px] font-medium leading-6 text-pine">
-                {day.label}
-              </span>
-              <Stepper direction="next" onClick={day.onNext} />
-            </div>
-          )}
+          {day && <DayNav {...day} />}
           {actions}
         </div>
       )}
     </header>
-  );
-}
-
-function Stepper({ direction, onClick }: { direction: 'prev' | 'next'; onClick?: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={!onClick}
-      aria-label={direction === 'prev' ? 'Previous day' : 'Next day'}
-      className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[9px] border border-pine/[0.18] transition-colors hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40"
-    >
-      <svg width="7" height="12" viewBox="0 0 7 12" fill="none" aria-hidden>
-        <path
-          d={direction === 'prev' ? 'M6 1L1 6L6 11' : 'M1 1L6 6L1 11'}
-          stroke="#3C3F38"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    </button>
   );
 }
 
@@ -236,14 +213,22 @@ export function Eyebrow({
 
 /* ----------------------------------------------------------------- buttons */
 
-type BtnProps = {
+/**
+ * Anything else a `<button>` takes rides through to the element, and so does
+ * a ref. That is what lets the pill be a Radix trigger: `asChild` clones its
+ * child with an onClick, a ref and a pile of aria/data attributes, and a
+ * component that quietly dropped them would render a button that opens
+ * nothing. `onClick` keeps its no-argument shape, which is all any caller
+ * here passes, while the event the trigger supplies still arrives.
+ */
+type BtnProps = Omit<React.ComponentPropsWithRef<'button'>, 'onClick'> & {
   children: React.ReactNode;
   icon?: React.ReactNode;
   /** Renders a link instead of a button when set. */
   href?: string;
   variant?: 'primary' | 'outline' | 'quiet';
   size?: 'md' | 'sm';
-  onClick?: () => void;
+  onClick?: React.MouseEventHandler<HTMLButtonElement>;
   disabled?: boolean;
   /** Pressed state for a pill that opens a panel. */
   pressed?: boolean;
@@ -262,6 +247,7 @@ export function Btn({
   onClick,
   disabled,
   pressed,
+  ...rest
 }: BtnProps) {
   const base =
     'inline-flex shrink-0 items-center justify-center gap-[7px] rounded-full transition-colors';
@@ -299,6 +285,7 @@ export function Btn({
       onClick={onClick}
       disabled={disabled}
       aria-expanded={pressed === undefined ? undefined : pressed}
+      {...rest}
     >
       {body}
     </button>
@@ -375,8 +362,23 @@ export function Chip({
   );
 }
 
-/** The search field. Styled, not wired — there is nothing to search yet. */
-export function Search({ placeholder, width = 200 }: { placeholder: string; width?: number }) {
+/**
+ * The search field.
+ *
+ * Controlled when it is given a `value` and an `onChange`, and an inert
+ * styled box otherwise — several screens still have nothing to search.
+ */
+export function Search({
+  placeholder,
+  width = 200,
+  value,
+  onChange,
+}: {
+  placeholder: string;
+  width?: number;
+  value?: string;
+  onChange?: (value: string) => void;
+}) {
   return (
     <div
       className="flex shrink-0 items-center gap-[9px] rounded-full border border-neutral-200 bg-white px-[14px] py-[9px]"
@@ -390,10 +392,57 @@ export function Search({ placeholder, width = 200 }: { placeholder: string; widt
         type="search"
         placeholder={placeholder}
         aria-label={placeholder}
+        value={onChange ? (value ?? '') : undefined}
+        onChange={onChange ? (e) => onChange(e.target.value) : undefined}
         className="min-w-0 grow bg-transparent text-[13px] leading-4 text-pine outline-none placeholder:text-neutral-500"
       />
     </div>
   );
+}
+
+/* ------------------------------------------------------------------ panels */
+
+/**
+ * The recessed panel an inline form or action sheet sits in, below a screen's
+ * head.
+ *
+ * This is the office's default, and the court desk uses nothing else: the
+ * operator is looking at the block they just clicked, and a dialog would
+ * cover the one thing they are reasoning about. A panel keeps the day on
+ * screen beside the decision.
+ *
+ * The roster's profile is the exception and opens a `Modal`. The row it came
+ * from is a summary rather than the subject — there is nothing behind the
+ * dialog worth seeing — and the editing is a form with a Save at the end, so
+ * it wants somewhere that holds attention until it is committed or dropped.
+ */
+export const PANEL =
+  'flex w-full flex-col gap-4 rounded-xl border border-neutral-200 bg-neutral-50 p-5';
+
+/** A panel's own heading. Quieter than `Eyebrow`, which titles a whole lane. */
+export const PANEL_LABEL = 'text-[11px] font-bold tracking-[0.14em] text-neutral-500';
+
+/** The compact input a panel uses, against the taller `Field` on a form screen. */
+export const INPUT =
+  'h-[38px] rounded-[9px] border border-neutral-200 bg-white px-3 text-[14px] text-pine outline-none focus:border-clay';
+
+export const SELECT = `${INPUT} pr-8`;
+
+/** A refusal, in the panel that caused it, in the server's own words. */
+export function FormError({ children }: { children: React.ReactNode }) {
+  return (
+    <p
+      role="alert"
+      className="rounded-[9px] border border-clay/40 bg-clay/10 px-3 py-2 text-[13px] text-[#9E4327]"
+    >
+      {children}
+    </p>
+  );
+}
+
+/** A thrown refusal's wording, or something honest when it had none. */
+export function errorText(err: unknown, fallback: string): string {
+  return err instanceof Error ? err.message : fallback;
 }
 
 /* ------------------------------------------------------------------ badges */
@@ -428,9 +477,12 @@ export function Badge({
  * A player level, as a square of the level ramp plus its name. The ramp is a
  * pure monotone run — red ball palest, open darkest — so a glance down the
  * column reads as a ladder without needing to read the words.
+ *
+ * The vocabulary itself lives in src/lib/roster.ts, where the database schema
+ * can reach it too, and is re-exported here because a screen has always asked
+ * the office's small parts for it.
  */
-export const LEVELS = ['Red ball', 'Green ball', 'Social', 'Club', 'Competitive', 'Open'] as const;
-export type Level = (typeof LEVELS)[number];
+export { LEVELS, type Level } from '@/lib/roster';
 
 /** The level ramp as background classes, so a bar segment and a dot agree. */
 export const LEVEL_BG: Record<Level, string> = {
@@ -442,20 +494,44 @@ export const LEVEL_BG: Record<Level, string> = {
   Open: 'bg-pine',
 };
 
-export function LevelDot({ level, size = 8 }: { level: Level; size?: number }) {
+/**
+ * Unranked is off the ramp on purpose — hollow rather than pale, so it reads
+ * as "no answer yet" rather than as a seventh, lowest rung. A member has no
+ * level until a coach has watched them hit.
+ *
+ * Two treatments, because one shape cannot do both jobs. The dot is 8px, so
+ * it gets a plain hollow outline: a dashed border that small renders as three
+ * or four stray specks per side. The bar segment can be any width from a
+ * sliver to the whole band, so it gets a hatch — which reads as "unallocated"
+ * at every size, where a dashed outline stretched across the full width reads
+ * as a divider rule somebody left behind.
+ */
+const UNRANKED_DOT = 'border border-neutral-300 bg-transparent';
+
+/** The bar segment for members with no level yet. See `UNRANKED_DOT`. */
+export const UNRANKED_BG =
+  'bg-[image:repeating-linear-gradient(45deg,#e5e5e5_0_4px,#f5f5f5_4px_9px)]';
+
+export function LevelDot({ level, size = 8 }: { level: MaybeLevel; size?: number }) {
   return (
     <span
-      className={`shrink-0 rounded-[2px] ${LEVEL_BG[level]}`}
+      className={`shrink-0 rounded-[2px] ${level ? LEVEL_BG[level] : UNRANKED_DOT}`}
       style={{ width: size, height: size }}
     />
   );
 }
 
-export function LevelTag({ level }: { level: Level }) {
+export function LevelTag({ level }: { level: MaybeLevel }) {
   return (
     <span className="flex items-center gap-[7px]">
       <LevelDot level={level} />
-      <span className="text-[13px] font-medium leading-4 text-neutral-700">{level}</span>
+      <span
+        className={`text-[13px] font-medium leading-4 ${
+          level ? 'text-neutral-700' : 'text-neutral-400'
+        }`}
+      >
+        {level ?? 'Unranked'}
+      </span>
     </span>
   );
 }
@@ -494,6 +570,13 @@ export type Col = {
   head: string;
   /** Fixed px width, or omitted for the one column that takes the slack. */
   w?: number;
+  /**
+   * A floor for the column that takes the slack. Without one it is the only
+   * thing in the row that can give, so every fixed column is paid for out of
+   * it — and on a narrow screen it is paid down to nothing, which is how a
+   * table of names ends up showing none.
+   */
+  min?: number;
   align?: 'left' | 'right';
 };
 
@@ -512,27 +595,42 @@ export function Table({
   headings?: boolean;
   children: React.ReactNode;
 }) {
+  /**
+   * What the row adds up to at its narrowest — every fixed column, the
+   * flexible one's floor, and the gaps between them. Below that the table
+   * scrolls sideways instead of crushing a column, which is the honest
+   * failure: a name half off the edge can still be read by scrolling, and a
+   * name truncated to "Bri…" cannot be read at all.
+   */
+  const floor =
+    cols.reduce((sum, col) => sum + (col.w ?? col.min ?? 0), 0) + (cols.length - 1) * GAP;
+
   return (
-    <div className="flex min-w-0 flex-col">
-      {headings && (
-        <div className="flex items-center gap-4 border-b border-neutral-200 px-1 pb-[10px]">
-          {cols.map((col, i) => (
-            <div
-              key={`${col.head}-${i}`}
-              className={`text-[10px] font-bold leading-3 tracking-[0.14em] text-neutral-500 ${
-                col.w ? 'shrink-0' : 'min-w-0 grow basis-0'
-              } ${col.align === 'right' ? 'text-right' : ''}`}
-              style={col.w ? { width: col.w } : undefined}
-            >
-              {col.head}
-            </div>
-          ))}
-        </div>
-      )}
-      {children}
+    <div className="min-w-0 overflow-x-auto overscroll-x-contain">
+      <div className="flex flex-col" style={{ minWidth: floor }}>
+        {headings && (
+          <div className="flex items-center gap-4 border-b border-neutral-200 px-1 pb-[10px]">
+            {cols.map((col, i) => (
+              <div
+                key={`${col.head}-${i}`}
+                className={`text-[10px] font-bold leading-3 tracking-[0.14em] text-neutral-500 ${
+                  col.w ? 'shrink-0' : 'min-w-0 grow basis-0'
+                } ${col.align === 'right' ? 'text-right' : ''}`}
+                style={col.w ? { width: col.w } : col.min ? { minWidth: col.min } : undefined}
+              >
+                {col.head}
+              </div>
+            ))}
+          </div>
+        )}
+        {children}
+      </div>
     </div>
   );
 }
+
+/** The gap between cells, in px. `gap-4` on the rows and the heading. */
+const GAP = 16;
 
 export function Row({ children }: { children: React.ReactNode }) {
   return (
@@ -557,7 +655,7 @@ export function Cell({
       className={`flex min-w-0 items-center ${col.w ? 'shrink-0' : 'grow basis-0'} ${
         col.align === 'right' ? 'justify-end' : ''
       } ${className}`}
-      style={col.w ? { width: col.w } : undefined}
+      style={col.w ? { width: col.w } : col.min ? { minWidth: col.min } : undefined}
     >
       {children}
     </div>
@@ -610,15 +708,18 @@ export function Fieldset({
 }
 
 /**
- * A text field. Every form in the club office is styled but unwired — there
- * is no database to save into yet — so these are real inputs with real
- * defaults and no submit behind them.
+ * A text field.
+ *
+ * Controlled when given an `onChange`, and an uncontrolled input holding a
+ * default otherwise — several of the office's forms are still styled rather
+ * than wired, and those want a field that simply holds its sample answer.
  */
 export function Field({
   label,
   hint,
   placeholder,
   value,
+  onChange,
   type = 'text',
   width,
   children,
@@ -628,6 +729,8 @@ export function Field({
   hint?: string;
   placeholder?: string;
   value?: string;
+  /** Set to make the field a real control rather than a default. */
+  onChange?: (value: string) => void;
   type?: string;
   /** Fixed px width, for the short fields. Omitted means take the slack. */
   width?: number;
@@ -649,7 +752,9 @@ export function Field({
         <input
           type={type}
           placeholder={placeholder}
-          defaultValue={value}
+          value={onChange ? (value ?? '') : undefined}
+          defaultValue={onChange ? undefined : value}
+          onChange={onChange ? (e) => onChange(e.target.value) : undefined}
           className="h-[46px] w-full rounded-[10px] border border-neutral-200 bg-white px-[14px] text-[15px] font-medium leading-5 text-pine outline-none transition-colors placeholder:font-normal placeholder:text-neutral-400 focus:border-pine/40"
         />
       )}
@@ -685,16 +790,21 @@ export function FieldRow({ children }: { children: React.ReactNode }) {
 export function Choices({
   options,
   chosen,
+  onPick,
   chosenStyle = 'solid',
   size = 'lg',
+  disabled,
 }: {
   /** A plain string, or a label with a swatch — which may differ when picked. */
   options: readonly (
     string | { label: string; mark?: React.ReactNode; markOn?: React.ReactNode }
   )[];
   chosen: string;
+  /** Set to make the row a real choice rather than a picture of one. */
+  onPick?: (label: string) => void;
   chosenStyle?: 'solid' | 'ring';
   size?: 'md' | 'lg';
+  disabled?: boolean;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -708,6 +818,8 @@ export function Choices({
             on={on}
             chosen={chosenStyle}
             size={size}
+            disabled={disabled}
+            onClick={onPick ? () => onPick(label) : undefined}
           >
             {label}
           </Chip>
@@ -746,16 +858,19 @@ export function PickCard({
   headline,
   detail,
   on = false,
+  onClick,
 }: {
   title: string;
   headline: string;
   detail: string;
   on?: boolean;
+  onClick?: () => void;
 }) {
   return (
     <button
       type="button"
       aria-pressed={on}
+      onClick={onClick}
       className={`flex min-w-0 grow basis-0 flex-col gap-1.5 rounded-[10px] p-4 text-left transition-colors ${
         on ? 'border-[1.5px] border-pine' : 'border border-neutral-200 hover:border-neutral-300'
       }`}
@@ -822,6 +937,11 @@ export const icons = {
   chat: (
     <svg width="14" height="14" viewBox="0 0 14 14" className="shrink-0" aria-hidden>
       <path d="M2 12l.9-3A5 5 0 1 1 5 11.1L2 12z" {...stroke} strokeLinecap="butt" />
+    </svg>
+  ),
+  filter: (
+    <svg width="14" height="14" viewBox="0 0 14 14" className="shrink-0" aria-hidden>
+      <path d="M1.8 3.1h10.4L8.3 7.5v4.1l-2.6-1.3V7.5z" {...stroke} />
     </svg>
   ),
   arrow: (
