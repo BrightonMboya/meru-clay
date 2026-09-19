@@ -1,37 +1,50 @@
 /**
- * Leads — every enquiry from Instagram and Facebook.
+ * Leads, as the screen reads them.
  *
- * ⚠️ DEMO DATA. See the note at the top of src/lib/bookings.ts.
+ * Pure, like src/lib/admin/players.ts. It takes the rows src/lib/leads.ts
+ * fetched and arranges them into the board the Paper design draws, without
+ * touching the database — which is what lets the Client Component re-filter
+ * the same payload without going back to the server.
  *
- * The one piece of real domain logic embedded in this screen is WhatsApp's
- * 24-hour rule: a business may only send freeform text within 24 hours of the
- * customer's last message. Outside that window it must send a template Meta
- * has approved. That is why every card carries a "reply free · Nh left" or an
- * "overdue · template needed" line, and why the composer at the bottom of the
- * lead detail is locked. See the WhatsApp section of the README, and
- * `src/lib/notify.ts`, which implements both modes.
+ * The rule this file follows, the same one the roster follows: a number on
+ * this screen is counted, never stored. A column's count is the length of its
+ * own list, so the heading and the cards underneath it cannot disagree. The
+ * funnel and the message meter below now follow it too — every figure on the
+ * leads screen is counted from rows at the moment it is drawn.
+ *
+ * ── What the screen deliberately does not claim ──────────────────────────
+ *
+ * There is no ad spend and no cost-per-member anywhere on it. Both need
+ * Meta's Ads API, which is a different product from the Cloud API the club
+ * sends WhatsApp through and is not connected, so rather than print a
+ * plausible TSh figure the screen prints none.
+ *
+ * The one piece of real domain logic here is WhatsApp's 24-hour rule: the
+ * club may only send freeform text within 24 hours of the lead's own last
+ * message. Outside that window it must send a template Meta has approved.
+ * That is why every card carries a "reply free · Nh left" or an "overdue ·
+ * template needed" line, and why the composer locks itself. The clock itself
+ * lives in src/lib/pipeline.ts; this file only draws it.
  */
-
 import type { Reading } from '@/components/admin/ui';
-
-export const FUNNEL_PERIOD = 'THE FUNNEL · 1–30 SEPTEMBER';
-export const MEMBER_WORTH = 'a member is worth about TSh 480,000 a year';
-
-/** The funnel, left to right. `accent` marks the step being worked on. */
-export const FUNNEL: Reading[] = [
-  { label: 'AD SPEND', value: 'TSh 840k', detail: 'Instagram 61% · Facebook 39%' },
-  { label: 'LEADS IN', value: '64', detail: 'TSh 13,100 each · 18 this week' },
-  { label: 'REPLIED', value: '41', detail: '64% · median reply in 3 hr' },
-  { label: 'TRIAL BOOKED', value: '22', detail: '17 turned up · 5 no-shows', accent: true },
-  { label: 'JOINED', value: '9', detail: 'TSh 93,300 per member won' },
-];
-
-/** The WhatsApp meter above the board — free replies cost nothing, templates do. */
-export const MESSAGE_COST = [
-  { label: 'Free replies', value: '156 this month' },
-  { label: 'Templates sent', value: '90 billable' },
-  { label: 'WhatsApp cost', value: 'TSh 990' },
-];
+import type { LeadFact, LeadMessageRow, LeadRow, MessageTotals } from '@/lib/leads';
+import {
+  BOARD_STAGES,
+  PERIOD_LABELS,
+  SOURCE_LABELS,
+  STAGE_LABELS,
+  fmtAge,
+  fmtDuration,
+  fmtWindowLeft,
+  initialsOfName,
+  pct,
+  reached,
+  replyWindow,
+  type LeadSource,
+  type LeadStage,
+  type MessageStatus,
+  type Period,
+} from '@/lib/pipeline';
 
 /**
  * A card's footer line. `free` is inside the 24-hour window, `overdue` is
@@ -40,9 +53,11 @@ export const MESSAGE_COST = [
  */
 export type FootTone = 'free' | 'overdue' | 'money' | 'plain';
 
+/** A card, plus the id the screen needs to open it. */
 export type Lead = {
+  id: number;
   name: string;
-  /** How long since the last touch, or when the trial is. */
+  /** How long since the last touch. */
   age: string;
   /** Their own words where we have them, otherwise what we did. */
   note: string;
@@ -54,289 +69,375 @@ export type Lead = {
   owner: string;
 };
 
-export type Column = { stage: string; count: number; leads: Lead[] };
+export type Column = { stage: string; stageKey: LeadStage; count: number; leads: Lead[] };
 
-export const BOARD: Column[] = [
-  {
-    stage: 'NEW',
-    count: 12,
-    leads: [
-      {
-        name: 'Grace Kimambo',
-        age: '14 min',
-        note: '“Do you teach complete beginners? I’m 34.”',
-        source: 'IG · ADULT BEGINNERS',
-        foot: 'Reply free · 23h left',
-        tone: 'free',
-        owner: 'EK',
-      },
-      {
-        name: 'Ibrahim Swai',
-        age: '1 hr',
-        note: '“My son is 9. Which day is the kids class?”',
-        source: 'IG · JUNIORS 8–12',
-        foot: 'Reply free · 23h left',
-        tone: 'free',
-        owner: 'EK',
-      },
-      {
-        name: 'Rehema Kaaya',
-        age: '3 hr',
-        note: '“Is the court really clay? Where exactly are you?”',
-        source: 'FB · THE CLAY COURT',
-        foot: 'Reply free · 21h left',
-        tone: 'free',
-        owner: 'EK',
-      },
-    ],
-  },
-  {
-    stage: 'CONTACTED',
-    count: 9,
-    leads: [
-      {
-        name: 'Peter Mwakalinga',
-        age: '5 hr',
-        note: 'Sent the price list and Saturday clinic times.',
-        source: 'FB · WEEKEND CLINIC',
-        foot: 'Follow up tomorrow',
-        tone: 'plain',
-        owner: 'EK',
-      },
-      {
-        name: 'Anna Shayo',
-        age: '2 days',
-        note: 'Asked to think about it. No answer since Friday.',
-        source: 'IG · ADULT BEGINNERS',
-        foot: 'Overdue · template needed',
-        tone: 'overdue',
-        owner: 'EK',
-      },
-      {
-        name: 'Joseph Temba',
-        age: 'Yesterday',
-        note: 'Wants an evening slot under the lights.',
-        source: 'FB · EVENING PLAY',
-        foot: 'Offer Wed 19:30',
-        tone: 'plain',
-        owner: 'EK',
-      },
-    ],
-  },
-  {
-    stage: 'TRIAL BOOKED',
-    count: 6,
-    leads: [
-      {
-        name: 'Zawadi Lyimo',
-        age: 'Sat 08:00',
-        note: 'Free trial lesson with the coach, Court 2.',
-        source: 'IG · JUNIORS 8–12',
-        foot: 'Reminder sent',
-        tone: 'plain',
-        owner: 'EK',
-      },
-      {
-        name: 'Salma Juma',
-        age: 'Sun 16:00',
-        note: 'Bringing a friend. Two rackets needed.',
-        source: 'IG · ADULT BEGINNERS',
-        foot: 'Confirm on Friday',
-        tone: 'plain',
-        owner: 'EK',
-      },
-    ],
-  },
-  {
-    stage: 'CAME TO TRIAL',
-    count: 4,
-    leads: [
-      {
-        name: 'Hassan Ally',
-        age: '2 days',
-        note: 'Loved it. Asked whether there is a family rate.',
-        source: 'IG · ADULT BEGINNERS',
-        foot: 'Send membership link',
-        tone: 'plain',
-        owner: 'EK',
-      },
-      {
-        name: 'Fatuma Nyerere',
-        age: '5 days',
-        note: 'Trialled twice. Waiting on the punch card price.',
-        source: "IG · WOMEN'S CLINIC",
-        foot: 'Overdue · template needed',
-        tone: 'overdue',
-        owner: 'EK',
-      },
-    ],
-  },
-  {
-    stage: 'JOINED',
-    count: 9,
-    leads: [
-      {
-        name: 'Editha Mrema',
-        age: '4 Sept',
-        note: 'Punch card, 12 classes. Plays Tue and Thu.',
-        source: 'FB · WEEKEND CLINIC',
-        foot: 'TSh 180,000',
-        tone: 'money',
-        owner: 'EK',
-      },
-      {
-        name: 'Baraka Meena',
-        age: '28 Aug',
-        note: 'Monthly membership. Came from the juniors ad.',
-        source: 'IG · JUNIORS 8–12',
-        foot: 'TSh 90,000',
-        tone: 'money',
-        owner: 'EK',
-      },
-    ],
-  },
-];
+/** A lead and the last thing said, which is all a card needs. */
+export type LeadWithLatest = LeadRow & { latest: LeadMessageRow | null };
 
-/* ------------------------------------------------------------- lead detail */
+/**
+ * The board.
+ *
+ * One pass over the rows, bucketed by stage, so a lead appears in exactly one
+ * column and every count is the length of the list beneath it.
+ */
+export function buildBoard(rows: LeadWithLatest[], now = new Date()): Column[] {
+  const byStage = new Map<LeadStage, Lead[]>(BOARD_STAGES.map((s) => [s, []]));
 
-export const LEAD = {
-  initials: 'AS',
-  name: 'Anna Shayo',
-  sub: '+255 764 220 118 · Arusha · came in 8 September',
-  facts: [
-    { label: 'CAME FROM', value: 'Instagram · Adult beginners' },
-    { label: 'WANTS', value: 'Weekday evenings' },
-    { label: 'TOUCHES', value: '3 messages · no calls' },
-    { label: 'NEXT ACTION', value: 'Overdue since Sunday', accent: true },
-  ],
-};
+  for (const row of rows) {
+    // `lost` is a real stage with no column; those leads are simply not drawn.
+    byStage.get(row.stage)?.push(toCard(row, now));
+  }
 
-/** One entry in the lead's history. `due` is the next thing to do, not done. */
-export type Moment = {
-  day: string;
-  time: string;
-  what: string;
-  detail: string;
-  /** The small tag under the entry, if any. */
-  tag?: string;
-  /** A second, quieter tag beside it. */
-  aside?: string;
-  kind: 'inbound' | 'outbound' | 'due';
-};
+  return BOARD_STAGES.map((stage) => {
+    const leads = byStage.get(stage)!;
+    return { stage: STAGE_LABELS[stage], stageKey: stage, count: leads.length, leads };
+  });
+}
 
-export const CONVERSATION: Moment[] = [
-  {
-    day: '8 Sept',
-    time: '11:04',
-    what: 'Filled the Instagram form',
-    detail: '“Adult beginners — learn on real clay” · saw the ad twice',
-    tag: 'Inbound · Instagram form',
-    kind: 'inbound',
-  },
-  {
-    day: '8 Sept',
-    time: '13:20',
-    what: 'Elias sent the welcome message',
-    detail: 'Prices, the Tuesday 18:00 beginner clinic, and where to park.',
-    tag: 'Read 13:26',
-    aside: 'Template · welcome_prices · free',
-    kind: 'outbound',
-  },
-  {
-    day: '12 Sept',
-    time: '09:48',
-    what: 'She replied',
-    detail: '“Let me check with my husband about Tuesdays and come back to you.”',
-    tag: 'Inbound · opened a free window until 13 Sept 09:48',
-    kind: 'inbound',
-  },
-  {
-    day: 'Today',
-    time: 'due',
-    what: 'Second nudge — offer a free trial',
-    detail: 'Two days quiet. The trial offer converts about a third of these.',
-    kind: 'due',
-  },
-];
+/**
+ * One card.
+ *
+ * The footer is the part that earns its place. It is the 24-hour window
+ * rendered as a sentence, because that window decides what the desk is
+ * allowed to do next, and a card that did not say so would send somebody to
+ * type a message that cannot be sent.
+ */
+function toCard(row: LeadWithLatest, now: Date): Lead {
+  const window = replyWindow(row.lastInboundAt, now);
+  const lastTouch = row.lastInboundAt ?? row.lastOutboundAt ?? row.createdAt;
 
-export const WINDOW_CLOSED = {
-  headline: 'Free reply window closed · 3 days ago',
-  detail:
-    'Anna last messaged 12 Sept 09:48, so replies were free until 13 Sept 09:48. Send an approved template to reopen the conversation — her reply starts a fresh 24 hours.',
-  locked: 'Typing a free message is locked until Anna writes back',
-};
+  const { foot, tone }: { foot: string; tone: FootTone } = row.stage === 'joined'
+    ? { foot: 'Joined the club', tone: 'money' }
+    : window.open
+      ? { foot: `Reply free · ${fmtWindowLeft(window.msLeft)}`, tone: 'free' }
+      : window.everWrote
+        ? { foot: 'Overdue · template needed', tone: 'overdue' }
+        : { foot: 'Not messaged yet · template needed', tone: 'plain' };
 
-/** Templates the club may send. `state` decides how the chip is drawn. */
-export const TEMPLATE_CHIPS = [
-  { name: 'Free trial offer', cost: 'utility · free', state: 'chosen' },
-  { name: "This week's clinic times", cost: 'utility · free', state: 'ready' },
-  { name: 'Punch card prices', cost: 'marketing · TSh 11', state: 'ready' },
-  { name: 'Come see the clay', cost: 'marketing · TSh 11', state: 'ready' },
-  { name: "Members' round-robin", cost: 'in review', state: 'pending' },
-] as const;
+  return {
+    id: row.id,
+    name: row.name,
+    age: fmtAge(lastTouch, now),
+    // Their last words if they have written, else whatever the form captured.
+    note: row.latest?.body ?? row.note ?? 'No message yet.',
+    source: sourceLine(row),
+    foot,
+    tone,
+    owner: row.owner ?? initialsOfName(row.name),
+  };
+}
 
-export const DRAFT = {
-  body: 'Hi Anna — Elias from Meru Clay. You asked about adult beginners a few days back. We keep a free trial lesson open on Tuesday at 18:00 if you’d like to come and hit on the clay before deciding. Shall I put your name down?',
-  meta: ['2 variables filled from her record', 'Swahili version available'],
-  note: 'Sending logs to her timeline and reopens free replies for 24 hours once she answers.',
-};
+/** "IG · ADULT BEGINNERS", or just "IG" when no campaign was recorded. */
+function sourceLine(row: LeadRow): string {
+  const where = SOURCE_LABELS[row.source];
+  return row.campaign ? `${where} · ${row.campaign.toUpperCase()}` : where;
+}
 
-/* ------------------------------------------------------------------- ads */
 
-export type Ad = {
+/* ------------------------------------------------------------ one lead */
+
+/** The header of an opened lead. */
+export type Detail = {
+  initials: string;
   name: string;
-  detail: string;
-  /** Cost per member won, or a note when there are none. */
-  cost: string;
-  /** 0–1, drawn as a bar against the best-performing ad. */
-  share: number;
-  rate: string;
+  sub: string;
+  facts: Array<{ label: string; value: string; accent?: boolean }>;
 };
 
-export const ADS: Ad[] = [
-  {
-    name: 'Juniors 8–12',
-    detail: 'IG reels · 21 leads · 4 joined',
-    cost: 'TSh 61k each',
-    share: 1,
-    rate: '19%',
-  },
-  {
-    name: 'Weekend clinic',
-    detail: 'FB feed · 13 leads · 2 joined',
-    cost: 'TSh 118k each',
-    share: 0.52,
-    rate: '15%',
-  },
-  {
-    name: 'Adult beginners',
-    detail: 'IG stories · 24 leads · 3 joined',
-    cost: 'TSh 96k each',
-    share: 0.64,
-    rate: '13%',
-  },
-  {
-    name: 'The clay court (brand)',
-    detail: 'FB video · 6 leads · 0 joined',
-    cost: 'no members yet',
-    share: 0.06,
-    rate: '0%',
-  },
-];
+export function buildDetail(lead: LeadRow, messages: LeadMessageRow[], now = new Date()): Detail {
+  const window = replyWindow(lead.lastInboundAt, now);
+  const sent = messages.filter((m) => m.direction === 'out' && m.status !== 'failed').length;
+  const got = messages.filter((m) => m.direction === 'in').length;
 
-export const AD_VERDICT = {
-  headline: 'The juniors ad brings the cheapest members. The brand video brings none.',
-  detail:
-    "Parents book faster than adults do. Shifting the brand video's budget to juniors would buy roughly three more members a month at today's rates.",
+  return {
+    initials: initialsOfName(lead.name),
+    name: lead.name,
+    sub: [lead.phone, lead.email, `came in ${fmtAge(lead.createdAt, now)} ago`]
+      .filter(Boolean)
+      .join(' · '),
+    facts: [
+      { label: 'CAME FROM', value: sourceLine(lead) },
+      { label: 'STAGE', value: STAGE_LABELS[lead.stage] },
+      { label: 'TOUCHES', value: `${sent} sent · ${got} received` },
+      {
+        label: 'REPLY WINDOW',
+        value: window.open
+          ? `Open · ${fmtWindowLeft(window.msLeft)}`
+          : window.everWrote
+            ? 'Closed · template needed'
+            : 'Never written · template needed',
+        accent: !window.open,
+      },
+    ],
+  };
+}
+
+/* ------------------------------------------------------------- the chat */
+
+/**
+ * One message, as a bubble.
+ *
+ * `mine` is the club's side of the conversation, drawn on the right. Note
+ * that a failed message is still `mine` and still drawn — see below.
+ */
+export type ChatMessage = {
+  id: number;
+  mine: boolean;
+  body: string;
+  /** "18:42" — the wall-clock time, which is what people scan for. */
+  time: string;
+  status: MessageStatus;
+  /** Meta's complaint, when the send failed. Shown under the bubble. */
+  error: string | null;
+  /** The approved template used, if any. */
+  template: string | null;
 };
 
-export const NUMBER_HEALTH = {
-  name: 'Meru Clay Tennis',
-  number: '+255 736 118 400 · sending number',
-  facts: [
-    { label: 'Quality rating', value: 'High' },
-    { label: 'Daily send limit', value: '250 · 14 used' },
-    { label: 'Templates', value: '4 approved · 1 in review' },
-    { label: 'Blocked you', value: '2 leads' },
-  ],
+/** A day's worth of messages, under one separator. */
+export type ChatDay = { day: string; messages: ChatMessage[] };
+
+/**
+ * The conversation, grouped into days.
+ *
+ * Grouped rather than a flat list because a thread that runs over weeks is
+ * unreadable without the breaks — the club needs to see "she went quiet for
+ * four days" as a shape on the screen, not work it out from timestamps.
+ *
+ * A failed send is kept and drawn in full rather than hidden. It is the one
+ * message somebody actually has to act on — the one they believe they sent
+ * and did not — so dropping it would be the worst thing this screen could do.
+ */
+export function buildChat(messages: LeadMessageRow[], now = new Date()): ChatDay[] {
+  const days: ChatDay[] = [];
+
+  for (const m of messages) {
+    const label = dayLabel(m.createdAt, now);
+    // Messages arrive in order, so the run for a day is always the last one.
+    let bucket = days[days.length - 1];
+    if (!bucket || bucket.day !== label) {
+      bucket = { day: label, messages: [] };
+      days.push(bucket);
+    }
+
+    bucket.messages.push({
+      id: m.id,
+      mine: m.direction === 'out',
+      body: m.body,
+      time: m.createdAt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+      status: m.status,
+      error: m.error,
+      template: m.template,
+    });
+  }
+
+  return days;
+}
+
+/** "Today", "Yesterday", then the date. How a person names a day. */
+function dayLabel(at: Date, now: Date): string {
+  const midnight = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((midnight(now) - midnight(at)) / 86_400_000);
+
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return at.toLocaleDateString('en-GB', { weekday: 'long' });
+  return at.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
+}
+
+/**
+ * What to tell the desk when it cannot type.
+ *
+ * Null when the window is open and the composer is free. Otherwise the three
+ * lines the locked composer shows — and it explains rather than just refuses,
+ * because "you cannot type" without a reason reads as a broken screen.
+ */
+export function windowNotice(
+  lead: LeadRow,
+  now = new Date(),
+): { headline: string; detail: string; locked: string } | null {
+  const window = replyWindow(lead.lastInboundAt, now);
+  if (window.open) return null;
+
+  const first = lead.name.split(' ')[0];
+
+  if (!window.everWrote) {
+    return {
+      headline: 'No free reply window yet',
+      detail: `${first} has never messaged the club, so WhatsApp will not carry a freeform message. Send an approved template — once ${first} answers, replies are free for 24 hours.`,
+      locked: `Typing a free message is locked until ${first} writes back`,
+    };
+  }
+
+  const closed = window.closesAt!;
+  return {
+    headline: `Free reply window closed · ${fmtAge(closed, now)} ago`,
+    detail: `${first} last messaged ${lead.lastInboundAt!.toLocaleString('en-GB', {
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    })}, so replies were free until ${closed.toLocaleString('en-GB', {
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    })}. Send an approved template to reopen the conversation — their reply starts a fresh 24 hours.`,
+    locked: `Typing a free message is locked until ${first} writes back`,
+  };
+}
+
+/* ---------------------------------------------------------------- funnel */
+
+/** The strip across the top of the screen. */
+export type Funnel = {
+  /** "THE FUNNEL · 20 AUG – 19 SEP". */
+  period: string;
+  /** The one line beside it, which is the thing to act on rather than a total. */
+  standing: string;
+  steps: Reading[];
 };
+
+/**
+ * The funnel, counted.
+ *
+ * Every step is the length of a filter over the same array, so the steps
+ * cannot contradict each other, and the whole strip is one pass over rows
+ * the screen already had to fetch.
+ *
+ * Two of the steps are honest about something the table cannot tell us. The
+ * board keeps only a lead's *current* stage, not the history of how they got
+ * there, so "trial booked" counts everyone at that stage or past it — see
+ * `reached` — and a lead who booked a trial and then went quiet is counted
+ * once, under lost, rather than being guessed at twice.
+ */
+export function buildFunnel(facts: LeadFact[], days: Period, now = new Date()): Funnel {
+  const n = facts.length;
+  const answered = facts.filter((f) => f.firstOutboundAt).length;
+  const waiting = facts.filter((f) => !f.firstOutboundAt && f.stage !== 'lost').length;
+  const wroteBack = facts.filter((f) => f.firstInboundAt).length;
+  const openNow = facts.filter((f) => replyWindow(f.lastInboundAt, now).open).length;
+  const booked = facts.filter((f) => reached(f.stage, 'trial_booked')).length;
+  const came = facts.filter((f) => reached(f.stage, 'came_to_trial')).length;
+  const joined = facts.filter((f) => f.stage === 'joined').length;
+  const lost = facts.filter((f) => f.stage === 'lost').length;
+  const median = medianFirstReply(facts);
+
+  return {
+    period: `THE FUNNEL · ${periodLabel(days, now)}`,
+    standing:
+      n === 0
+        ? 'nothing has come in yet'
+        : waiting > 0
+          ? `${waiting} still waiting on a first reply`
+          : 'every enquiry has been answered',
+    steps: [
+      {
+        label: 'ENQUIRIES',
+        value: String(n),
+        detail: sourceMix(facts),
+      },
+      {
+        label: 'ANSWERED',
+        value: String(answered),
+        detail: median
+          ? `${pct(answered, n)} · median reply in ${fmtDuration(median)}`
+          : `${pct(answered, n)} of them`,
+        // The step being worked on, which is the one with people stuck in it.
+        accent: waiting > 0,
+      },
+      {
+        label: 'WROTE BACK',
+        value: String(wroteBack),
+        detail:
+          openNow > 0
+            ? `${pct(wroteBack, n)} · ${openNow} free to reply to now`
+            : `${pct(wroteBack, n)} · none inside the free window`,
+      },
+      {
+        label: 'TRIAL BOOKED',
+        value: String(booked),
+        detail: booked === 0 ? 'none yet' : `${came} turned up · ${booked - came} still to come`,
+      },
+      {
+        label: 'JOINED',
+        value: String(joined),
+        detail: `${pct(joined, n)} of enquiries · ${lost} lost`,
+      },
+    ],
+  };
+}
+
+/** "20 AUG – 19 SEP", or "EVERYTHING" when the window is all of time. */
+function periodLabel(days: Period, now: Date): string {
+  if (days === 0) return 'EVERYTHING';
+  const from = new Date(now.getTime() - days * 86_400_000);
+  const fmt = (d: Date) =>
+    d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }).toUpperCase();
+  return `${fmt(from)} – ${fmt(now)}`;
+}
+
+/**
+ * "IG 61% · FB 39%" — where the enquiries came from, biggest first.
+ *
+ * Only the two largest. A third at four per cent is noise on a reading meant
+ * to be taken in at a glance, and the campaign table below says the rest.
+ */
+function sourceMix(facts: LeadFact[]): string {
+  if (facts.length === 0) return 'none in this window';
+
+  const counts = new Map<LeadSource, number>();
+  for (const f of facts) counts.set(f.source, (counts.get(f.source) ?? 0) + 1);
+
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([source, n]) => `${SOURCE_LABELS[source]} ${pct(n, facts.length)}`)
+    .join(' · ');
+}
+
+/**
+ * How long the club takes to answer, as a median rather than a mean.
+ *
+ * One enquiry answered three weeks late would drag an average past the point
+ * of being any use; the median says what usually happens, which is what
+ * somebody deciding whether the desk is keeping up needs.
+ */
+function medianFirstReply(facts: LeadFact[]): number | null {
+  const waits = facts
+    .filter((f) => f.firstOutboundAt)
+    .map((f) => f.firstOutboundAt!.getTime() - f.createdAt.getTime())
+    .filter((ms) => ms >= 0)
+    .sort((a, b) => a - b);
+
+  if (waits.length === 0) return null;
+  const mid = Math.floor(waits.length / 2);
+  return waits.length % 2 ? waits[mid]! : (waits[mid - 1]! + waits[mid]!) / 2;
+}
+
+/* ----------------------------------------------------------- the meter */
+
+/**
+ * The strip above the board: what the number has sent, and what it cost.
+ *
+ * Meta bills a marketing template and nothing else, and the club has no
+ * access to its own bill through the API — so this counts the messages and
+ * lets the invoice speak for itself rather than multiplying by a rate
+ * somebody typed in. The third figure is failures, because that is the one
+ * on this strip anybody has to do something about.
+ */
+export function buildMeter(totals: MessageTotals): Array<{
+  label: string;
+  value: string;
+  accent?: boolean;
+}> {
+  return [
+    { label: 'Free replies', value: `${totals.freeReplies} sent` },
+    { label: 'Templates', value: `${totals.templates} sent` },
+    { label: 'Received', value: `${totals.received}` },
+    {
+      label: 'Not delivered',
+      value: String(totals.failed),
+      accent: totals.failed > 0,
+    },
+  ];
+}

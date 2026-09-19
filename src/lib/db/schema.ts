@@ -31,6 +31,16 @@ import {
 
 import { MEMBERSHIPS, type MembershipTier } from '../pricing';
 import {
+  LEAD_SOURCES,
+  LEAD_STAGES,
+  MESSAGE_DIRECTIONS,
+  MESSAGE_STATUSES,
+  type LeadSource,
+  type LeadStage,
+  type MessageDirection,
+  type MessageStatus,
+} from '../pipeline';
+import {
   AVAILABILITIES,
   LEVELS,
   PLAYER_ROLES,
@@ -303,6 +313,111 @@ export const attendance = pgTable(
   ],
 );
 
+
+/**
+ * A lead — somebody who asked about the club and has not joined yet.
+ *
+ * Deliberately not a `players` row. A lead is an enquiry, most of which come
+ * to nothing; a player is a member of the club. Collapsing the two would put
+ * sixty maybes on the roster and make every count on that screen wrong. When
+ * a lead does join, `player_id` is filled in and the two rows sit side by
+ * side — the lead keeps the story of how they arrived, which is the only
+ * record of what the advertising actually bought.
+ *
+ * The two timestamps at the bottom are not bookkeeping. `last_inbound_at` is
+ * what WhatsApp's 24-hour rule is measured from, so it decides whether the
+ * desk may type a free message or must fall back to an approved template —
+ * see `replyWindow` in src/lib/pipeline.ts. It is written by the webhook, and
+ * it is the single most load-bearing column on this table.
+ */
+export const leads = pgTable(
+  'leads',
+  {
+    id: serial('id').primaryKey(),
+    name: text('name').notNull(),
+    /** E.164 (+255…) — this is the WhatsApp address, so it is required. */
+    phone: text('phone').notNull(),
+    email: text('email'),
+    stage: text('stage').notNull().default('new').$type<LeadStage>(),
+    source: text('source').notNull().default('other').$type<LeadSource>(),
+    /** Which ad they came from — "ADULT BEGINNERS". Free text; Meta's names. */
+    campaign: text('campaign'),
+    /** Their own words, where the form captured them. */
+    note: text('note'),
+    /** Who at the club owns the conversation. */
+    owner: text('owner'),
+    /** Set when they join. The lead row is kept either way. */
+    playerId: integer('player_id').references(() => players.id),
+    /**
+     * When they last wrote to us. NULL means they never have, which is the
+     * normal state of a brand-new lead and the reason the first message out
+     * must be a template. See the header note.
+     */
+    lastInboundAt: timestamp('last_inbound_at', { withTimezone: true }),
+    lastOutboundAt: timestamp('last_outbound_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    /**
+     * One live lead per number, on the same reasoning as `uniq_player_phone`:
+     * the same person filling in the Instagram form twice is one lead, not
+     * two, and the desk should not have to spot it. Lost leads are exempt so
+     * that somebody who went quiet in March can come back in September as a
+     * fresh enquiry.
+     */
+    uniqueIndex('uniq_lead_phone')
+      .on(t.phone)
+      .where(sql`stage <> 'lost'`),
+    index('idx_leads_stage').on(t.stage, t.createdAt),
+    check('leads_stage_check', sql.raw(`stage in (${list(LEAD_STAGES)})`)),
+    check('leads_source_check', sql.raw(`source in (${list(LEAD_SOURCES)})`)),
+  ],
+);
+
+/**
+ * Every message either way, and the club's own record of the conversation.
+ *
+ * Kept even though WhatsApp has its own copy, for three reasons: the desk can
+ * read a lead's history without anyone's phone in hand, the timeline survives
+ * a staff member leaving with their handset, and `wa_message_id` gives the
+ * webhook something to be idempotent against. Meta retries deliveries, so the
+ * same message WILL arrive twice; the unique index below is what makes that
+ * harmless rather than a doubled conversation.
+ */
+export const leadMessages = pgTable(
+  'lead_messages',
+  {
+    id: serial('id').primaryKey(),
+    leadId: integer('lead_id')
+      .notNull()
+      .references(() => leads.id, { onDelete: 'cascade' }),
+    direction: text('direction').notNull().$type<MessageDirection>(),
+    body: text('body').notNull(),
+    /**
+     * Meta's own id (`wamid.…`). NULL only for the instant between writing
+     * the row and the API answering — and for rows a send never got an id
+     * for, which is why the unique index below is partial.
+     */
+    waMessageId: text('wa_message_id'),
+    /** The approved template used, or NULL for a freeform message. */
+    template: text('template'),
+    status: text('status').notNull().default('queued').$type<MessageStatus>(),
+    /** Meta's complaint, when status is 'failed'. Shown to the desk verbatim. */
+    error: text('error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    /** The webhook's idempotency. See the header note. */
+    uniqueIndex('uniq_lead_message_wamid')
+      .on(t.waMessageId)
+      .where(sql`wa_message_id is not null`),
+    index('idx_lead_messages_lead').on(t.leadId, t.createdAt),
+    check('lead_messages_direction_check', sql.raw(`direction in (${list(MESSAGE_DIRECTIONS)})`)),
+    check('lead_messages_status_check', sql.raw(`status in (${list(MESSAGE_STATUSES)})`)),
+  ],
+);
+
 export type BookingRecord = typeof bookings.$inferSelect;
 export type NewBooking = typeof bookings.$inferInsert;
 export type BlockRecord = typeof blocks.$inferSelect;
@@ -310,3 +425,7 @@ export type EnrolmentRecord = typeof classEnrolments.$inferSelect;
 export type PlayerRecord = typeof players.$inferSelect;
 export type NewPlayer = typeof players.$inferInsert;
 export type AttendanceRecord = typeof attendance.$inferSelect;
+export type LeadRecord = typeof leads.$inferSelect;
+export type NewLead = typeof leads.$inferInsert;
+export type LeadMessageRecord = typeof leadMessages.$inferSelect;
+export type NewLeadMessage = typeof leadMessages.$inferInsert;
