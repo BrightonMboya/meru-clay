@@ -1,0 +1,42 @@
+@import 'tailwindcss';
+
+@theme {
+  /* Fonts. `--font-*-src` are set by next/font in the root layout. */
+  --font-display: var(--font-fraunces), ui-serif, Georgia, serif;
+  --font-sans: var(--font-archivo), system-ui, sans-serif;
+  /* The admin shell is its own typographic world — Inter, not Archivo.
+     It is an office tool, not the brochure. */
+  --font-ui: var(--font-inter), system-ui, sans-serif;
+
+  /* Brand palette — Meru Clay */
+  --color-pine: #13271d; /* deep court-side green ground */
+  --color-pine-700: #1a3326;
+  --color-clay: #c75b39; /* crushed brick / terracotta */
+  --color-clay-light: #e8825f; /* sun-lit clay accent */
+  --color-clay-wash: #faebe5; /* clay at 8% — admin alert grounds */
+  --color-clay-ink: #9e4327; /* clay dark enough to read on clay-wash */
+  --color-cream: #f6f2e9; /* chalk line cream */
+  --color-cream-200: #f0ede5;
+  --color-mist: #d9ded7; /* muted sage text */
+  --color-stone: #9aa39b;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--color-cream);
+    color: var(--color-pine);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-synthesis: none;
+    overflow-x: hidden;
+  }
+
+  .font-display {
+    font-family: var(--font-display);
+  }
+}

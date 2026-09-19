@@ -1,5 +1,0 @@
-# Cloudflare Pages config for the Meru Clay static site.
-# Deploy with:  npm run build && npx wrangler pages deploy
-name = "meru-clay"
-compatibility_date = "2025-06-01"
-pages_build_output_dir = "dist"

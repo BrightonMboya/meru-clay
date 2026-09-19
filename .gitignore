@@ -1,15 +1,21 @@
 # build output
-dist/
-# generated types
-.astro/
+.next/
+out/
 # dependencies
 node_modules/
 # logs
 npm-debug.log*
 # environment variables
 .env
+.env*.local
 .env.production
+# typescript
+next-env.d.ts
+*.tsbuildinfo
 # macOS
 .DS_Store
-# jamstack / cloudflare
+
+# Left over from the Cloudflare deployment this was ported off. .dev.vars
+# holds live tokens — keep both ignored whether or not they are still needed.
+.dev.vars
 .wrangler/
