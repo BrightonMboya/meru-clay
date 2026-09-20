@@ -1,3 +1,4 @@
+import { requireOperatorApi } from '@/lib/admin/session';
 import { getLead } from '@/lib/leads';
 import { sendToLead, type SendRequest } from '@/lib/outbox';
 import { replyWindow } from '@/lib/pipeline';
@@ -18,6 +19,9 @@ export const dynamic = 'force-dynamic';
  * that comes back is written to be shown to a person as-is.
  */
 export async function POST(request: Request, ctx: RouteContext<'/api/desk/leads/[id]/messages'>) {
+  const denied = await requireOperatorApi();
+  if (denied) return denied;
+
   const id = Number((await ctx.params).id);
   if (!Number.isInteger(id)) return json({ error: 'Unknown lead.' }, 400);
 

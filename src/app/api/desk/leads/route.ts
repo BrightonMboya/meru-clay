@@ -1,9 +1,11 @@
 import { loadLeadBoard } from '@/lib/admin/load';
+import { requireOperatorApi } from '@/lib/admin/session';
 import { createLead } from '@/lib/leads';
 import {
   isPeriod,
   isSource,
   isStage,
+  parseLimits,
   type LeadSource,
   type LeadStage,
   type Period,
@@ -25,15 +27,27 @@ export const dynamic = 'force-dynamic';
  * every lead's phone number in a single request.
  */
 export async function GET(request: Request) {
-  // The same two filters the screen puts in its own URL, so a poll returns
-  // the board the operator is actually looking at rather than all of it.
+  const denied = await requireOperatorApi();
+  if (denied) return denied;
+
+  // The same filters the screen puts in its own URL, so a poll returns the
+  // board the operator is actually looking at rather than all of it —
+  // including `show`, which says how far each lane has been expanded. A
+  // refresh that quietly collapsed the lane somebody was reading would be
+  // worse than no refresh at all.
   const params = new URL(request.url).searchParams;
-  const campaign = params.get('campaign')?.trim() || null;
   const days = params.get('days');
-  const period: Period = isPeriod(days) ? (Number(days) as Period) : 30;
 
   try {
-    return json(await loadLeadBoard(campaign, period));
+    return json(
+      await loadLeadBoard({
+        campaign: params.get('campaign')?.trim() || null,
+        days: isPeriod(days) ? (Number(days) as Period) : 30,
+        search: params.get('q')?.trim() || null,
+        owner: params.get('owner')?.trim() || null,
+        limits: parseLimits(params.get('show')),
+      }),
+    );
   } catch (err) {
     console.error('leads failed:', err);
     return json({ error: 'Could not load the leads.' }, 500);
@@ -42,6 +56,9 @@ export async function GET(request: Request) {
 
 /** POST /api/desk/leads — take an enquiry at the desk. */
 export async function POST(request: Request) {
+  const denied = await requireOperatorApi();
+  if (denied) return denied;
+
   let body: Record<string, unknown>;
   try {
     body = await request.json();

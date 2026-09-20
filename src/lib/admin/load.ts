@@ -17,7 +17,13 @@ import { lastAttendedByPlayer } from '../attendance';
 import { bookedBetween, lastPlayedByPhone, listCoaches, listPlayers } from '../players';
 import { initialsOf } from '../roster';
 import { addDays, isValidDate, nowLocal } from '../time';
-import { periodStart, replyWindow, type LeadStage, type Period } from '../pipeline';
+import {
+  periodStart,
+  replyWindow,
+  type LaneLimits,
+  type LeadStage,
+  type Period,
+} from '../pipeline';
 import { numberHealth, templates, type WaTemplate } from '../whatsapp';
 import { deskDay, weekDates, type Desk } from './desk';
 import {
@@ -100,12 +106,13 @@ export const loadRoster = cache(async (): Promise<Roster> => {
 });
 
 /**
- * Who is at the desk, for the shell's operator row.
+ * Who is at the desk, for the shell's operator row — the fallback.
  *
- * The first coach on the roster, alphabetically. The shell used to name a
- * hard-coded "Elias Kimaro"; until there is a sign-in, the club's own coach
- * list is a truer answer than an invented one. Falls back to the club itself
- * rather than an empty row on a database with no coaches in it yet.
+ * Superseded by `operatorFromSession` in src/lib/admin/session.ts, which names
+ * whoever is actually signed in. This stays as the answer of last resort: the
+ * first coach on the roster, alphabetically, and the club itself on a database
+ * with no coaches in it yet. The shell reaches for it only when a session
+ * somehow carries no name.
  */
 export const loadOperator = cache(async () => {
   const [coach] = await listCoaches();
@@ -132,10 +139,42 @@ export type Board = {
   lost: number;
   /** The send meter above the lanes, over the same window the funnel uses. */
   meter: ReturnType<typeof buildMeter>;
+  /** Everyone who owns a conversation, for the filter above the board. */
+  owners: string[];
+  /** How many leads the search and the filters left, before the lanes cut. */
+  matched: number;
 };
 
+/** What the screen is asking the board for. */
+export type BoardQuery = {
+  campaign?: string | null;
+  days?: Period;
+  /** Name, phone or their own words. Case- and space-insensitive. */
+  search?: string | null;
+  owner?: string | null;
+  limits?: LaneLimits;
+};
+
+/**
+ * Who a search matches.
+ *
+ * Name, phone and their own words, because those are the three things
+ * somebody at the desk actually has when they go looking: a name half
+ * remembered, a number on a screen, or the thing the person said.
+ */
+function matches(row: { name: string; phone: string; note: string | null }, needle: string) {
+  const hay = `${row.name} ${row.phone} ${row.note ?? ''}`.toLowerCase();
+  return hay.includes(needle);
+}
+
 export const loadLeadBoard = cache(
-  async (campaign: string | null = null, days: Period = 30): Promise<Board> => {
+  async ({
+    campaign = null,
+    days = 30,
+    search = null,
+    owner = null,
+    limits = {},
+  }: BoardQuery = {}): Promise<Board> => {
     const [rows, latest, totals] = await Promise.all([
       listLeads(),
       latestMessages(),
@@ -143,21 +182,31 @@ export const loadLeadBoard = cache(
     ]);
 
     // Filtering here rather than in SQL keeps `listLeads` the one query every
-    // screen shares, and the board is a few dozen rows — the cost is nothing
-    // and the alternative is a second query that can disagree with the first.
-    const scoped = campaign
-      ? rows.filter((r) => (r.campaign?.trim() || '') === campaign)
-      : rows;
+    // screen shares, and the alternative is a second query that can disagree
+    // with the first. It is a few hundred rows in memory; what costs real
+    // money is sending them all to the browser, and `buildBoard` is where
+    // that is dealt with.
+    const needle = search?.trim().toLowerCase() || null;
+    const scoped = rows.filter(
+      (r) =>
+        (!campaign || (r.campaign?.trim() || '') === campaign) &&
+        (!owner || (r.owner?.trim() || '') === owner) &&
+        (!needle || matches(r, needle)),
+    );
 
     const withLatest = scoped.map((lead) => ({ ...lead, latest: latest.get(lead.id) ?? null }));
 
     return {
-      columns: buildBoard(withLatest),
+      columns: buildBoard(withLatest, new Date(), limits),
       // Counted from the rows, not from the columns — `lost` leads are real and
       // have no column, and the number at the top should not pretend otherwise.
-      total: scoped.length,
+      total: rows.length,
+      matched: scoped.length,
       lost: scoped.filter((r) => r.stage === 'lost').length,
       meter: buildMeter(totals),
+      // Every owner on record, not only those left after filtering — a filter
+      // that removes its own options cannot be undone from the screen.
+      owners: [...new Set(rows.map((r) => r.owner?.trim()).filter(Boolean))].sort() as string[],
     };
   },
 );

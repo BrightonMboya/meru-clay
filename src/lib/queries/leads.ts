@@ -10,8 +10,9 @@
  */
 
 import { queryOptions } from '@tanstack/react-query';
+import type { Lead } from '@/lib/admin/leads';
 import type { Board, LeadThread } from '@/lib/admin/load';
-import type { LeadSource, LeadStage, Period } from '@/lib/pipeline';
+import { formatLimits, type LaneLimits, type LeadSource, type LeadStage, type Period } from '@/lib/pipeline';
 import { getJson } from './http';
 
 export type { Board };
@@ -21,17 +22,43 @@ export type { Board };
  * filtered to one campaign and the whole board are different answers and
  * must not overwrite each other.
  */
-export type BoardFilters = { campaign: string | null; days: Period };
+export type BoardFilters = {
+  campaign: string | null;
+  days: Period;
+  /** Name, phone or their own words. */
+  search: string | null;
+  owner: string | null;
+  /** Which lanes have been expanded past the first page, and how far. */
+  limits: LaneLimits;
+};
 
-function boardUrl({ campaign, days }: BoardFilters): string {
+function boardUrl({ campaign, days, search, owner, limits }: BoardFilters): string {
   const q = new URLSearchParams({ days: String(days) });
   if (campaign) q.set('campaign', campaign);
+  if (search) q.set('q', search);
+  if (owner) q.set('owner', owner);
+  const show = formatLimits(limits);
+  if (show) q.set('show', show);
   return `/api/desk/leads?${q}`;
 }
 
 export const board = {
+  /**
+   * The bare key is the prefix every filtered board hangs off, so one
+   * `invalidateQueries(['leads'])` after a write refreshes all of them —
+   * the board being looked at, and any other the cache is still holding.
+   */
   key: (filters?: BoardFilters) =>
-    filters ? (['leads', filters.campaign, filters.days] as const) : (['leads'] as const),
+    filters
+      ? ([
+          'leads',
+          filters.campaign,
+          filters.days,
+          filters.search,
+          filters.owner,
+          formatLimits(filters.limits),
+        ] as const)
+      : (['leads'] as const),
 
   options: (filters: BoardFilters) =>
     queryOptions({
@@ -80,6 +107,53 @@ export function addLead(input: NewLead) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(input),
   });
+}
+
+/**
+ * The board with one card already moved.
+ *
+ * Drag has to look instant — a card that hangs where it was dropped until the
+ * round trip finishes reads as a broken board — so the drop writes this into
+ * the cache and the server's answer replaces it a moment later. Every count
+ * is recomputed from the lists it moved between, never adjusted by one, for
+ * the same reason `buildBoard` counts rather than stores: a heading and the
+ * cards beneath it must not be able to disagree, not even for 200ms.
+ *
+ * Returns the board untouched when the card is not on it, which is what
+ * happens if a refetch landed between the drag starting and ending.
+ */
+export function moveOnBoard(board: Board, id: number, to: LeadStage): Board {
+  let card: Lead | undefined;
+
+  const without = board.columns.map((column) => {
+    const found = column.leads.find((lead) => lead.id === id);
+    if (!found) return column;
+    card = found;
+    // `count` is the whole lane and `leads` is only the page of it on
+    // screen, so the two move by the same one but are not the same number.
+    return {
+      ...column,
+      leads: column.leads.filter((lead) => lead.id !== id),
+      count: Math.max(0, column.count - 1),
+    };
+  });
+
+  if (!card) return board;
+
+  // `lost` is a real stage with no column. The card leaves the board — the
+  // count in the subtitle is where it reappears.
+  if (to === 'lost') return { ...board, columns: without, lost: board.lost + 1 };
+
+  const columns = without.map((column) =>
+    column.stageKey === to
+      ? // Straight to the top: a lead just touched is the most urgent thing
+        // in the lane by the ordering the server uses, and the drop has to
+        // land somewhere the eye can follow.
+        { ...column, leads: [card!, ...column.leads], count: column.count + 1 }
+      : column,
+  );
+
+  return { ...board, columns };
 }
 
 export function moveLead(id: number, stage: LeadStage) {

@@ -1,3 +1,4 @@
+import { requireOperatorApi } from '@/lib/admin/session';
 import { cancelBooking, confirmBooking, markPaid } from '@/lib/bookings';
 
 export const dynamic = 'force-dynamic';
@@ -18,6 +19,9 @@ type Action = (typeof ACTIONS)[number];
  * note in src/app/api/desk/route.ts.
  */
 export async function PATCH(request: Request, ctx: RouteContext<'/api/desk/bookings/[id]'>) {
+  const denied = await requireOperatorApi();
+  if (denied) return denied;
+
   const { id } = await ctx.params;
 
   let body: { action?: unknown };

@@ -15,7 +15,7 @@
  * buy nothing and cost the arithmetic.
  */
 
-import { sql } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 import {
   boolean,
   check,
@@ -429,3 +429,123 @@ export type LeadRecord = typeof leads.$inferSelect;
 export type NewLead = typeof leads.$inferInsert;
 export type LeadMessageRecord = typeof leadMessages.$inferSelect;
 export type NewLeadMessage = typeof leadMessages.$inferInsert;
+
+/**
+ * Better Auth.
+ *
+ * Four tables, and none of them are ours to design: Better Auth queries them
+ * by name and by column, so these definitions have to match what the library
+ * expects or sign-in fails at runtime rather than at build time. They were
+ * produced by `npx auth generate` and then moved here by hand.
+ *
+ * That makes upgrades the thing to watch. A new version of better-auth, or a
+ * plugin added to src/lib/auth.ts, can want columns that are not here yet.
+ * To see what a given version wants:
+ *
+ *     npx auth generate --config src/lib/auth.ts --output /tmp/auth-schema.ts
+ *
+ * and diff it against this block. Nothing warns you otherwise.
+ *
+ * The timestamps below are `timestamp`, not the `timestamptz` used everywhere
+ * above. That is what the generator emits and what migration 0008 created, so
+ * it stays — the mismatch is worth knowing about, not worth a type change the
+ * next `auth generate` would disagree with.
+ */
+
+export const user = pgTable('user', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  email: text('email').notNull().unique(),
+  emailVerified: boolean('email_verified').notNull().default(false),
+  image: text('image'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at')
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+/**
+ * One row per signed-in browser. `token` is what the session cookie carries,
+ * so it is unique and looked up on essentially every authenticated request.
+ */
+export const session = pgTable(
+  'session',
+  {
+    id: text('id').primaryKey(),
+    expiresAt: timestamp('expires_at').notNull(),
+    token: text('token').notNull().unique(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at')
+      .notNull()
+      .$onUpdate(() => new Date()),
+    ipAddress: text('ip_address'),
+    userAgent: text('user_agent'),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+  },
+  (t) => [index('session_userId_idx').on(t.userId)],
+);
+
+/**
+ * Credentials. For email-and-password sign-in this holds the password hash
+ * and `providerId` is 'credential'; for a social provider it holds that
+ * provider's tokens instead. A user can have several.
+ */
+export const account = pgTable(
+  'account',
+  {
+    id: text('id').primaryKey(),
+    accountId: text('account_id').notNull(),
+    providerId: text('provider_id').notNull(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    accessToken: text('access_token'),
+    refreshToken: text('refresh_token'),
+    idToken: text('id_token'),
+    accessTokenExpiresAt: timestamp('access_token_expires_at'),
+    refreshTokenExpiresAt: timestamp('refresh_token_expires_at'),
+    scope: text('scope'),
+    password: text('password'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at')
+      .notNull()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [index('account_userId_idx').on(t.userId)],
+);
+
+/** Short-lived tokens: email verification, password reset. */
+export const verification = pgTable(
+  'verification',
+  {
+    id: text('id').primaryKey(),
+    identifier: text('identifier').notNull(),
+    value: text('value').notNull(),
+    expiresAt: timestamp('expires_at').notNull(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at')
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [index('verification_identifier_idx').on(t.identifier)],
+);
+
+export const userRelations = relations(user, ({ many }) => ({
+  sessions: many(session),
+  accounts: many(account),
+}));
+
+export const sessionRelations = relations(session, ({ one }) => ({
+  user: one(user, { fields: [session.userId], references: [user.id] }),
+}));
+
+export const accountRelations = relations(account, ({ one }) => ({
+  user: one(user, { fields: [account.userId], references: [user.id] }),
+}));
+
+export type UserRecord = typeof user.$inferSelect;
+export type SessionRecord = typeof session.$inferSelect;

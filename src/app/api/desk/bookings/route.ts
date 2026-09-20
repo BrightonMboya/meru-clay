@@ -6,6 +6,7 @@ import {
   isValidStart,
   occupancy,
 } from '@/lib/availability';
+import { requireOperatorApi } from '@/lib/admin/session';
 import { blocksOn, createBooking, liveBookings } from '@/lib/bookings';
 import { DURATIONS, fmtRange, isValidDate, nowLocal, type Duration } from '@/lib/time';
 
@@ -33,6 +34,9 @@ export const dynamic = 'force-dynamic';
  * note in src/app/api/desk/route.ts.
  */
 export async function POST(request: Request) {
+  const denied = await requireOperatorApi();
+  if (denied) return denied;
+
   let body: Record<string, unknown>;
   try {
     body = await request.json();

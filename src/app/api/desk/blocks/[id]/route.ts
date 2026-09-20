@@ -1,9 +1,13 @@
+import { requireOperatorApi } from '@/lib/admin/session';
 import { deleteBlock } from '@/lib/blocks';
 
 export const dynamic = 'force-dynamic';
 
 /** DELETE /api/desk/blocks/:id — reopen a court. ⚠️ Staff endpoint, unauthenticated. */
 export async function DELETE(_request: Request, ctx: RouteContext<'/api/desk/blocks/[id]'>) {
+  const denied = await requireOperatorApi();
+  if (denied) return denied;
+
   const { id } = await ctx.params;
   const numeric = Number(id);
   if (!Number.isInteger(numeric)) return json({ error: 'bad id' }, 400);

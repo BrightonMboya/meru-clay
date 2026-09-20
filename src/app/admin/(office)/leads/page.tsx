@@ -34,7 +34,7 @@ export default async function LeadsPage({ searchParams }: PageProps<'/admin/lead
   // minute must not be the reason the desk cannot see who is waiting for a
   // reply. It streams in underneath instead — see <SendingNumber>.
   const [board, pipeline] = await Promise.all([
-    loadLeadBoard(campaign, days),
+    loadLeadBoard({ campaign, days }),
     loadPipeline(days, campaign),
   ]);
 
@@ -83,7 +83,7 @@ export default async function LeadsPage({ searchParams }: PageProps<'/admin/lead
         </div>
       </section>
 
-      <LeadBoard initial={board} filters={{ campaign, days }} />
+      <LeadBoard initial={board} scope={{ campaign, days }} />
 
       <div className="w-full xl:max-w-[452px]">
         <Suspense fallback={<NumberSkeleton />}>

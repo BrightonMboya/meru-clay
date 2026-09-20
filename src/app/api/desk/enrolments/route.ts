@@ -1,3 +1,4 @@
+import { requireOperatorApi } from '@/lib/admin/session';
 import { COURTS } from '@/lib/availability';
 import { classRoll, enrol } from '@/lib/enrolments';
 import { classesOn } from '@/lib/schedule';
@@ -20,6 +21,9 @@ export const dynamic = 'force-dynamic';
 
 /** GET /api/desk/enrolments?date=&court=&start= — who is signed up to one class. */
 export async function GET(request: Request) {
+  const denied = await requireOperatorApi();
+  if (denied) return denied;
+
   const params = new URL(request.url).searchParams;
   const asked = classAt(params.get('date'), Number(params.get('court')), Number(params.get('start')));
   if ('error' in asked) return json({ error: asked.error }, 400);
@@ -30,6 +34,9 @@ export async function GET(request: Request) {
 
 /** POST /api/desk/enrolments — sign a player up to a class. */
 export async function POST(request: Request) {
+  const denied = await requireOperatorApi();
+  if (denied) return denied;
+
   let body: Record<string, unknown>;
   try {
     body = await request.json();

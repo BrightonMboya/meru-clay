@@ -1,3 +1,4 @@
+import { requireOperatorApi } from '@/lib/admin/session';
 import { unenrol } from '@/lib/enrolments';
 
 export const dynamic = 'force-dynamic';
@@ -13,6 +14,9 @@ export const dynamic = 'force-dynamic';
  * note in src/app/api/desk/route.ts.
  */
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const denied = await requireOperatorApi();
+  if (denied) return denied;
+
   const id = Number((await params).id);
   if (!Number.isInteger(id)) return json({ error: 'Unknown place.' }, 400);
 

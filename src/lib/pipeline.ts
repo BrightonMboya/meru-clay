@@ -229,3 +229,50 @@ export function fmtDuration(ms: number): string {
 export function pct(part: number, whole: number): string {
   return whole === 0 ? '—' : `${Math.round((part / whole) * 100)}%`;
 }
+
+/* ------------------------------------------------------------- lane paging */
+
+/**
+ * How many cards a lane draws before it offers to show the rest.
+ *
+ * A pipeline with several hundred leads in it is normal — and drawing all of
+ * them is not. Every card is a draggable node, a subscription and a few
+ * hundred bytes on the wire, so a lane that drew all 255 of its leads would
+ * cost the desk a megabyte and forty screens of scrolling to look at the six
+ * people who are actually waiting. Every CRM that survives contact with real
+ * data pages its lanes; this is that number.
+ */
+export const LANE_PAGE = 25;
+
+/** How many cards each lane has been asked to draw, where not the default. */
+export type LaneLimits = Partial<Record<LeadStage, number>>;
+
+/**
+ * The wire format for the above: "contacted:50,new:75".
+ *
+ * It goes in the query string, so it is also what the screen's URL says and
+ * what the cache is keyed on. Anything unrecognised is dropped rather than
+ * argued with — a hand-edited URL should show a board, not an error.
+ */
+export function parseLimits(raw: string | null | undefined): LaneLimits {
+  const limits: LaneLimits = {};
+  if (!raw) return limits;
+
+  for (const part of raw.split(',')) {
+    const [stage, n] = part.split(':');
+    const count = Number(n);
+    if (!isStage(stage) || !Number.isInteger(count)) continue;
+    // Clamped: a lane always draws at least a page, and never more than the
+    // whole pipeline could plausibly hold in one screen.
+    limits[stage] = Math.min(Math.max(count, LANE_PAGE), 2000);
+  }
+  return limits;
+}
+
+export function formatLimits(limits: LaneLimits): string {
+  return Object.entries(limits)
+    .filter(([, n]) => n && n > LANE_PAGE)
+    .map(([stage, n]) => `${stage}:${n}`)
+    .sort()
+    .join(',');
+}

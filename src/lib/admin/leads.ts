@@ -30,7 +30,9 @@ import type { Reading } from '@/components/admin/ui';
 import type { LeadFact, LeadMessageRow, LeadRow, MessageTotals } from '@/lib/leads';
 import {
   BOARD_STAGES,
+  LANE_PAGE,
   PERIOD_LABELS,
+  WINDOW_MS,
   SOURCE_LABELS,
   STAGE_LABELS,
   fmtAge,
@@ -40,6 +42,7 @@ import {
   pct,
   reached,
   replyWindow,
+  type LaneLimits,
   type LeadSource,
   type LeadStage,
   type MessageStatus,
@@ -69,28 +72,84 @@ export type Lead = {
   owner: string;
 };
 
-export type Column = { stage: string; stageKey: LeadStage; count: number; leads: Lead[] };
+export type Column = {
+  stage: string;
+  stageKey: LeadStage;
+  /**
+   * Everyone at this stage — not everyone drawn.
+   *
+   * The two used to be the same number and no longer are: past `LANE_PAGE`
+   * the lane draws a page and says how many more there are. The heading has
+   * to keep telling the truth about the pipeline, so it counts the rows, and
+   * `leads.length` is only what is on screen.
+   */
+  count: number;
+  leads: Lead[];
+};
 
 /** A lead and the last thing said, which is all a card needs. */
 export type LeadWithLatest = LeadRow & { latest: LeadMessageRow | null };
 
 /**
+ * The order cards are drawn in within a lane.
+ *
+ * Not newest-first, which is the order the rows arrive in and the wrong one
+ * for a lane of two hundred: it buries the person who has been waiting three
+ * weeks underneath everyone who enquired this morning, and the top of a lane
+ * is the only part anybody reads.
+ *
+ * So the lane is ordered by what the desk can still do something about:
+ *
+ *   0. their 24-hour window is open — soonest to close first, because after
+ *      that it costs a template and Meta's approval to say anything at all;
+ *   1. nobody has written to them yet — longest wait first;
+ *   2. everyone else — newest first, as before.
+ *
+ * Returns a sort key rather than a comparator so the two halves can be
+ * compared in one pass.
+ */
+function urgency(row: LeadRow, now: Date): [number, number] {
+  const inbound = row.lastInboundAt?.getTime();
+  if (inbound !== undefined && now.getTime() - inbound < WINDOW_MS) return [0, inbound];
+  if (!row.lastOutboundAt) return [1, row.createdAt.getTime()];
+  return [2, -row.createdAt.getTime()];
+}
+
+/**
  * The board.
  *
  * One pass over the rows, bucketed by stage, so a lead appears in exactly one
- * column and every count is the length of the list beneath it.
+ * column and every count is the length of that bucket — counted before the
+ * lane is cut down to the page being shown, so the heading and the cards
+ * cannot disagree about how many people there are.
  */
-export function buildBoard(rows: LeadWithLatest[], now = new Date()): Column[] {
-  const byStage = new Map<LeadStage, Lead[]>(BOARD_STAGES.map((s) => [s, []]));
+export function buildBoard(
+  rows: LeadWithLatest[],
+  now = new Date(),
+  limits: LaneLimits = {},
+): Column[] {
+  const byStage = new Map<LeadStage, LeadWithLatest[]>(BOARD_STAGES.map((s) => [s, []]));
 
   for (const row of rows) {
     // `lost` is a real stage with no column; those leads are simply not drawn.
-    byStage.get(row.stage)?.push(toCard(row, now));
+    byStage.get(row.stage)?.push(row);
   }
 
   return BOARD_STAGES.map((stage) => {
-    const leads = byStage.get(stage)!;
-    return { stage: STAGE_LABELS[stage], stageKey: stage, count: leads.length, leads };
+    const all = byStage.get(stage)!;
+
+    const ordered = all
+      .map((row) => ({ row, key: urgency(row, now) }))
+      .sort((a, b) => a.key[0] - b.key[0] || a.key[1] - b.key[1]);
+
+    const limit = limits[stage] ?? LANE_PAGE;
+
+    return {
+      stage: STAGE_LABELS[stage],
+      stageKey: stage,
+      count: all.length,
+      leads: ordered.slice(0, limit).map(({ row }) => toCard(row, now)),
+    };
   });
 }
 

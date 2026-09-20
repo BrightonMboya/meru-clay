@@ -2,7 +2,17 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { useState } from 'react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { signOut } from '@/lib/auth-client';
 import {
   Sidebar as SidebarRoot,
   SidebarContent,
@@ -146,9 +156,22 @@ export default function Sidebar({
   operator,
 }: {
   courts: CourtStatus[];
-  operator: { initials: string; name: string; role: string };
+  /** `email` is absent only on the signed-out fallback; see the office layout. */
+  operator: { initials: string; name: string; role: string; email?: string };
 }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const [leaving, setLeaving] = useState(false);
+
+  async function onSignOut() {
+    setLeaving(true);
+    await signOut();
+    // `replace`, so the back button does not return to a screen the session
+    // behind it no longer opens; `refresh` to drop the server-rendered shell
+    // that still holds the old operator's name.
+    router.replace('/admin/login');
+    router.refresh();
+  }
 
   return (
     <SidebarRoot collapsible="icon">
@@ -239,6 +262,10 @@ export default function Sidebar({
 
         <SidebarMenu className="px-2 pt-3 group-data-[collapsible=icon]:px-1">
           <SidebarMenuItem>
+            {/* The chevron below was drawn as a disclosure from the start but
+                had nothing to disclose until there was a session to end. */}
+            <DropdownMenu>
+            <DropdownMenuTrigger asChild>
             <SidebarMenuButton
               size="lg"
               tooltip={`${operator.name} · ${operator.role}`}
@@ -275,6 +302,30 @@ export default function Sidebar({
                 />
               </svg>
             </SidebarMenuButton>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="top" align="start" className="w-56">
+              <DropdownMenuLabel className="font-normal">
+                <span className="block truncate text-[13px] font-semibold leading-4 text-pine">
+                  {operator.name}
+                </span>
+                <span className="block truncate text-[12px] font-normal leading-4 text-neutral-500">
+                  {operator.email ?? operator.role}
+                </span>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                disabled={leaving}
+                onSelect={(event) => {
+                  // Keep the menu open while the request is in flight, so the
+                  // row does not snap shut and look as though nothing happened.
+                  event.preventDefault();
+                  onSignOut();
+                }}
+              >
+                {leaving ? 'Signing out…' : 'Sign out'}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+            </DropdownMenu>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>

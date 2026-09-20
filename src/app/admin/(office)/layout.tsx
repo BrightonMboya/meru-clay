@@ -6,6 +6,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { courtStatus } from '@/lib/admin/desk';
 import { loadDesk, loadOperator } from '@/lib/admin/load';
+import { operatorFromSession, requireOperator } from '@/lib/admin/session';
 
 /**
  * The club office shell: sidebar on the left, one scrolling column on the
@@ -30,8 +31,21 @@ export const metadata: Metadata = {
 export const dynamic = 'force-dynamic';
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
+  // The lock. src/proxy.ts turns most signed-out traffic around before it gets
+  // this far, but a matcher is a configuration and this is the code path every
+  // office screen actually runs through, so the question is asked again here.
+  // Nothing below this line loads for someone who is not signed in.
+  await requireOperator();
+
   // `loadDesk` is request-memoised, so this shares its queries with the page.
-  const [desk, operator, jar] = await Promise.all([loadDesk(), loadOperator(), cookies()]);
+  // `operatorFromSession` reuses the session `requireOperator` just read.
+  const [desk, sessionOperator, fallback, jar] = await Promise.all([
+    loadDesk(),
+    operatorFromSession(),
+    loadOperator(),
+    cookies(),
+  ]);
+  const operator = sessionOperator ?? fallback;
 
   // Whether the rail was left open, read on the server so a collapsed rail
   // renders collapsed rather than flashing its full width and snapping shut
@@ -46,9 +60,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         // 248px, as drawn. shadcn's own default is 256.
         style={{ '--sidebar-width': '15.5rem' } as React.CSSProperties}
       >
-        {/* The operator row named a hard-coded coach who does not exist. Until
-            there is a sign-in it names the club's first coach instead — a
-            guess, but one drawn from the roster rather than from the mockup. */}
+        {/* The operator row now names whoever is signed in. It used to guess —
+            first a hard-coded coach, then the club's first coach off the
+            roster — because there was no sign-in to ask. There is one now, and
+            `loadOperator` stays only as the fallback for the moment between a
+            session existing and a name being on it. */}
         <Sidebar courts={courtStatus(desk)} operator={operator} />
         <SidebarInset className="min-w-0">
           {/* On a phone the rail is a sheet with nothing on screen to open it,

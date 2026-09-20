@@ -1,3 +1,4 @@
+import { requireOperatorApi } from '@/lib/admin/session';
 import { isOnRoster, recentFor, recordAttendance } from '@/lib/attendance';
 import { nowLocal } from '@/lib/time';
 
@@ -10,6 +11,9 @@ export const dynamic = 'force-dynamic';
  * note in src/app/api/desk/route.ts.
  */
 export async function POST(request: Request) {
+  const denied = await requireOperatorApi();
+  if (denied) return denied;
+
   let body: Record<string, unknown>;
   try {
     body = await request.json();

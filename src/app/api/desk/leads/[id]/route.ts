@@ -1,4 +1,5 @@
 import { loadLeadThread } from '@/lib/admin/load';
+import { requireOperatorApi } from '@/lib/admin/session';
 import { setStage } from '@/lib/leads';
 import { isStage } from '@/lib/pipeline';
 import { publish } from '@/lib/realtime';
@@ -16,6 +17,9 @@ export const dynamic = 'force-dynamic';
  * comes to offer a message that cannot be sent.
  */
 export async function GET(_request: Request, ctx: RouteContext<'/api/desk/leads/[id]'>) {
+  const denied = await requireOperatorApi();
+  if (denied) return denied;
+
   const id = Number((await ctx.params).id);
   if (!Number.isInteger(id)) return json({ error: 'Unknown lead.' }, 400);
 
@@ -31,6 +35,9 @@ export async function GET(_request: Request, ctx: RouteContext<'/api/desk/leads/
 
 /** PATCH /api/desk/leads/:id — move them along the board. */
 export async function PATCH(request: Request, ctx: RouteContext<'/api/desk/leads/[id]'>) {
+  const denied = await requireOperatorApi();
+  if (denied) return denied;
+
   const id = Number((await ctx.params).id);
   if (!Number.isInteger(id)) return json({ error: 'Unknown lead.' }, 400);
 

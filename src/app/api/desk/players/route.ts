@@ -1,4 +1,5 @@
 import { loadRoster } from '@/lib/admin/load';
+import { requireOperatorApi } from '@/lib/admin/session';
 import { createPlayer } from '@/lib/players';
 import { MEMBERSHIP_TIERS, isMembership, type MembershipTier } from '@/lib/pricing';
 import {
@@ -28,6 +29,9 @@ export const dynamic = 'force-dynamic';
  * number in a single request, so it is the worst of them to leave open.
  */
 export async function GET() {
+  const denied = await requireOperatorApi();
+  if (denied) return denied;
+
   try {
     return json(await loadRoster());
   } catch (err) {
@@ -38,6 +42,9 @@ export async function GET() {
 
 /** POST /api/desk/players — add a member or a coach. */
 export async function POST(request: Request) {
+  const denied = await requireOperatorApi();
+  if (denied) return denied;
+
   let body: Record<string, unknown>;
   try {
     body = await request.json();

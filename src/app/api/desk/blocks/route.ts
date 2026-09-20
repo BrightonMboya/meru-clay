@@ -1,3 +1,4 @@
+import { requireOperatorApi } from '@/lib/admin/session';
 import { COURTS } from '@/lib/availability';
 import { createBlock, parseCourt, validBlockWindow } from '@/lib/blocks';
 import { isValidDate } from '@/lib/time';
@@ -11,6 +12,9 @@ export const dynamic = 'force-dynamic';
  * note in src/app/api/desk/route.ts.
  */
 export async function POST(request: Request) {
+  const denied = await requireOperatorApi();
+  if (denied) return denied;
+
   let body: Record<string, unknown>;
   try {
     body = await request.json();

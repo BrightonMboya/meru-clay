@@ -1,4 +1,5 @@
 import { loadDesk } from '@/lib/admin/load';
+import { requireOperatorApi } from '@/lib/admin/session';
 import { isValidDate } from '@/lib/time';
 
 // The desk is a live board — the now-line, the hold countdowns and the day's
@@ -6,16 +7,17 @@ import { isValidDate } from '@/lib/time';
 export const dynamic = 'force-dynamic';
 
 /**
- * ⚠️ NO AUTHENTICATION.
+ * Staff only.
  *
- * Every route under /api/desk, and every page under /admin, is reachable by
- * anyone who knows the path. They can read the day's players and phone
- * numbers, confirm or cancel bookings, and close courts. That is fine for
- * local work and is NOT fine in production.
+ * The two prefixes this app keeps its private work behind — /admin and
+ * /api/desk — are both matched by src/proxy.ts, which is the single place the
+ * note that used to sit here asked for. A request with no session gets a 401
+ * from here and a redirect to /admin/login from there.
  *
- * The fix is one middleware matching `/admin/:path*` and `/api/desk/:path*`;
- * everything staff-only was deliberately put under those two prefixes so it
- * can be added in a single place. Nothing else has to move.
+ * The proxy is the door, not the lock: `matcher` is configuration, and a
+ * Server Function is a POST to whatever route it lives on, which a matcher can
+ * miss. Anything that reads a player's phone number should also ask
+ * `requireOperatorApi` (src/lib/admin/session.ts) for itself.
  */
 
 /**
@@ -26,6 +28,9 @@ export const dynamic = 'force-dynamic';
  * the grid and the list down the side cannot tell three different stories.
  */
 export async function GET(request: Request) {
+  const denied = await requireOperatorApi();
+  if (denied) return denied;
+
   const date = new URL(request.url).searchParams.get('date');
   if (date !== null && !isValidDate(date)) return json({ error: 'bad date' }, 400);
 

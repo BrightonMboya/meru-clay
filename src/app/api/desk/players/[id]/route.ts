@@ -5,6 +5,7 @@ import {
   updatePlayer,
   type PlayerPatch,
 } from '@/lib/players';
+import { requireOperatorApi } from '@/lib/admin/session';
 import { isMembership } from '@/lib/pricing';
 import { isAvailability, isLevel, normalisePhone } from '@/lib/roster';
 import { nowLocal } from '@/lib/time';
@@ -27,6 +28,9 @@ export const dynamic = 'force-dynamic';
  * note in src/app/api/desk/route.ts.
  */
 export async function PATCH(request: Request, ctx: RouteContext<'/api/desk/players/[id]'>) {
+  const denied = await requireOperatorApi();
+  if (denied) return denied;
+
   const id = Number((await ctx.params).id);
   if (!Number.isInteger(id)) return json({ error: 'Unknown player.' }, 400);
 
@@ -109,6 +113,9 @@ export async function PATCH(request: Request, ctx: RouteContext<'/api/desk/playe
  * against last season's bookings. See `deactivatePlayer`.
  */
 export async function DELETE(_request: Request, ctx: RouteContext<'/api/desk/players/[id]'>) {
+  const denied = await requireOperatorApi();
+  if (denied) return denied;
+
   const id = Number((await ctx.params).id);
   if (!Number.isInteger(id)) return json({ error: 'Unknown player.' }, 400);
 
