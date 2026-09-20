@@ -1,6 +1,8 @@
 import Image from 'next/image';
 import Link from 'next/link';
 
+import JoinDialog from '@/components/marketing/JoinDialog';
+
 const whatsapp = 'https://wa.me/255782628288';
 
 export default function Cta() {
@@ -35,12 +37,22 @@ export default function Cta() {
         </p>
 
         <div className="flex flex-col items-center gap-[14px] pt-10">
-          <Link
-            href="/book"
-            className="rounded-full bg-clay px-[36px] py-[17px] text-[16px] font-semibold text-white transition-transform hover:scale-[1.03]"
-          >
-            Book a Court
-          </Link>
+          <div className="flex flex-wrap items-center justify-center gap-[14px]">
+            <JoinDialog>
+              <button
+                type="button"
+                className="rounded-full bg-clay px-[36px] py-[17px] text-[16px] font-semibold text-white transition-transform hover:scale-[1.03]"
+              >
+                Become a Member
+              </button>
+            </JoinDialog>
+            <Link
+              href="/book"
+              className="rounded-full border border-cream/50 px-[36px] py-[17px] text-[16px] font-medium text-cream transition-colors hover:border-cream"
+            >
+              Book a Court
+            </Link>
+          </div>
           <a
             href={whatsapp}
             target="_blank"

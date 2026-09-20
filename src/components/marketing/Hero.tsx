@@ -1,6 +1,8 @@
 import Image from 'next/image';
 import Link from 'next/link';
 
+import JoinDialog from '@/components/marketing/JoinDialog';
+
 const nav = [
   { label: 'About', href: '#about' },
   { label: 'The Courts', href: '#courts' },
@@ -89,19 +91,21 @@ export default function Hero() {
             Crushed brick, the slow red bounce, and the long shadow of Mount Meru. A members&apos;
             tennis club built around the most beautiful surface in the game.
           </p>
-          <div className="flex shrink-0 items-center gap-[14px]">
+          <div className="flex shrink-0 flex-wrap items-center gap-[14px]">
+            <JoinDialog>
+              <button
+                type="button"
+                className="rounded-full bg-clay px-[30px] py-4 text-[15px] font-semibold text-white transition-transform hover:scale-[1.03]"
+              >
+                Become a Member
+              </button>
+            </JoinDialog>
             <Link
               href="/book"
-              className="rounded-full bg-clay px-[30px] py-4 text-[15px] font-semibold text-white transition-transform hover:scale-[1.03]"
+              className="rounded-full border border-cream/40 px-[30px] py-4 text-[15px] font-medium text-cream transition-colors hover:border-cream"
             >
               Book a Court
             </Link>
-            <a
-              href="#pricing"
-              className="rounded-full border border-cream/40 px-[30px] py-4 text-[15px] font-medium text-cream transition-colors hover:border-cream"
-            >
-              See Pricing
-            </a>
           </div>
         </div>
       </div>

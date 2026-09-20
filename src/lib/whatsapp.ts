@@ -216,6 +216,20 @@ export function sendTemplate(
  */
 export function verifySignature(raw: string, header: string | null, appSecret?: string): boolean {
   if (!appSecret) {
+    // Unsigned payloads are accepted on a laptop, where the alternative is
+    // that nothing can be tested until Meta's app secret is to hand, and the
+    // only thing listening is a tunnel the developer opened a minute ago.
+    //
+    // In production they are refused. The callback URL is public and its
+    // path is not a secret, so without the signature anyone who finds it can
+    // post whatever they like: invented leads in the board, invented
+    // delivery receipts under messages the club actually sent. Refusing is
+    // the safe failure — Meta retries for a day, so setting the secret
+    // recovers anything that arrived meanwhile.
+    if (process.env.NODE_ENV === 'production') {
+      console.error('WHATSAPP_APP_SECRET is unset — refusing an unsigned webhook delivery.');
+      return false;
+    }
     console.warn('WHATSAPP_APP_SECRET is unset — webhook signatures are not being checked.');
     return true;
   }

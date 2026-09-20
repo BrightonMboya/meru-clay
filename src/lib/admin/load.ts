@@ -162,8 +162,11 @@ export type BoardQuery = {
  * somebody at the desk actually has when they go looking: a name half
  * remembered, a number on a screen, or the thing the person said.
  */
-function matches(row: { name: string; phone: string; note: string | null }, needle: string) {
-  const hay = `${row.name} ${row.phone} ${row.note ?? ''}`.toLowerCase();
+function matches(
+  row: { name: string; phone: string; email: string | null; note: string | null },
+  needle: string,
+) {
+  const hay = `${row.name} ${row.phone} ${row.email ?? ''} ${row.note ?? ''}`.toLowerCase();
   return hay.includes(needle);
 }
 

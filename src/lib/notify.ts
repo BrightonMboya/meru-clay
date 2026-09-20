@@ -1,7 +1,9 @@
 /**
- * Outbound notifications. Three, all best-effort — a booking that is already
+ * Outbound notifications. All best-effort — a booking that is already
  * committed to the database must never be reported as failed because a
  * notification bounced. Failures are logged and swallowed.
+ *
+ * Three go out when a court is booked:
  *
  *   Club   -> email to BOOKING_TO_EMAIL. This is the one that must not be
  *             missed: until the WhatsApp template below is approved by Meta,
@@ -11,6 +13,10 @@
  *   Player -> confirmation email, only when they left an address.
  *
  * All three are sent in one small bounded batch rather than fanned out.
+ *
+ * A fourth goes to the same club inbox when somebody asks to join through
+ * the homepage form — see `notifyEnquiry`. The lead row is the record; the
+ * mail is only so that nobody has to be watching the board for it.
  *
  * ── About the mail transport ─────────────────────────────────────────────
  * Resend, over plain HTTP — one API key, no binding, nothing host-specific,
@@ -261,6 +267,67 @@ async function emailClub(env: NotifyEnv, b: Booking): Promise<void> {
       '<p>The slot is held. Confirm with the player directly.</p>',
     ].join(''),
   });
+}
+
+/** Somebody asking to join, from the form on the homepage. */
+export type Enquiry = {
+  name: string;
+  phone: string;
+  email: string;
+  sessions: number;
+  withKid: boolean;
+};
+
+/**
+ * Tell the club somebody wants to join.
+ *
+ * The lead row written before this is the record, and the board is where the
+ * enquiry is actually worked — this is only so that joining is not something
+ * the club finds out about by happening to look. Never throws, for the same
+ * reason the booking notifications do not: the enquiry is already saved, and
+ * a bounced mail must not turn it into an error the visitor sees.
+ *
+ * Silent while BOOKING_TO_EMAIL is unset, which is the same condition that
+ * silences the booking notification.
+ */
+export async function notifyEnquiry(env: NotifyEnv, e: Enquiry): Promise<void> {
+  if (!env.BOOKING_TO_EMAIL) return;
+
+  const lines: Array<[string, string]> = [
+    ['Name', e.name],
+    ['Phone', e.phone],
+    ['Email', e.email],
+    ['Sessions a month', String(e.sessions)],
+    ['Bringing a child', e.withKid ? 'Yes' : 'No'],
+  ];
+
+  try {
+    await deliver(env, {
+      to: env.BOOKING_TO_EMAIL,
+      // Answering the notification answers them.
+      replyTo: e.email,
+      subject: `Membership enquiry — ${e.name}`,
+      text: [
+        'Somebody asked to join through the website.',
+        '',
+        ...lines.map(([k, v]) => `${k}: ${v}`),
+        '',
+        'They are on the leads board, in New.',
+      ].join('\n'),
+      html: [
+        '<p><strong>Somebody asked to join through the website.</strong></p>',
+        '<table cellpadding="6" cellspacing="0" style="border-collapse:collapse;font:15px system-ui,sans-serif">',
+        ...lines.map(
+          ([k, v]) =>
+            `<tr><td style="color:#5F6B62;padding-right:18px">${k}</td><td><strong>${escapeHtml(v)}</strong></td></tr>`,
+        ),
+        '</table>',
+        '<p>They are on the leads board, in New.</p>',
+      ].join(''),
+    });
+  } catch (err) {
+    console.error('notify enquiry failed:', err);
+  }
 }
 
 async function emailPlayer(env: NotifyEnv, b: Booking): Promise<void> {
