@@ -547,5 +547,47 @@ export const accountRelations = relations(account, ({ one }) => ({
   user: one(user, { fields: [account.userId], references: [user.id] }),
 }));
 
+/**
+ * Invitations to the club office.
+ *
+ * This table is the answer to "who is allowed to become an operator". Signup
+ * is otherwise closed once the founding account exists (see
+ * `user.validateUserInfo` in src/lib/auth.ts), and a row here is the single
+ * exception — an email the club has deliberately asked in.
+ *
+ * It is not the magic link. Better Auth mints and verifies the link itself,
+ * through the `verification` table above, and those tokens last minutes. This
+ * lasts days and answers a different question: not "is this link genuine" but
+ * "was this person invited at all". Both have to be true to get in, which is
+ * what stops a link forwarded to a stranger from also handing them an account.
+ *
+ * One row per email: inviting the same address twice refreshes the existing
+ * invitation rather than stacking up duplicates. Revoking deletes the row.
+ */
+export const adminInvites = pgTable(
+  'admin_invites',
+  {
+    id: serial('id').primaryKey(),
+    /** Lowercased on the way in — see `normaliseEmail` in src/lib/admin/invites.ts. */
+    email: text('email').notNull(),
+    /**
+     * Who asked them. Null once that operator's own account is deleted: the
+     * invitation still happened, and losing the record of it would be worse
+     * than losing the name attached to it.
+     */
+    invitedBy: text('invited_by').references(() => user.id, { onDelete: 'set null' }),
+    /** Their name at the time of inviting, so the roll reads as people. */
+    invitedByName: text('invited_by_name'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Past this, the row no longer admits anyone. Re-invite to extend. */
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    /** Set when the account is actually created. Null while outstanding. */
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+  },
+  (t) => [uniqueIndex('uniq_admin_invite_email').on(t.email)],
+);
+
+export type AdminInviteRecord = typeof adminInvites.$inferSelect;
+
 export type UserRecord = typeof user.$inferSelect;
 export type SessionRecord = typeof session.$inferSelect;

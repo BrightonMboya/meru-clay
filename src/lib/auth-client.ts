@@ -10,7 +10,12 @@
  */
 
 import { createAuthClient } from 'better-auth/react';
+import { magicLinkClient } from 'better-auth/client/plugins';
 
-export const authClient = createAuthClient();
+export const authClient = createAuthClient({
+  // Mirrors the server's plugin list — the client needs the matching half to
+  // know `signIn.magicLink` exists. See src/lib/auth.ts.
+  plugins: [magicLinkClient()],
+});
 
 export const { signIn, signUp, signOut, useSession, getSession } = authClient;

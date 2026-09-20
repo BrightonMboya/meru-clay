@@ -21,17 +21,39 @@ function safeNext(value: string | string[] | undefined): string {
   return next;
 }
 
+/**
+ * A refusal that arrived as a redirect, not as a form submission.
+ *
+ * Better Auth sends browser flows here on failure (`onAPIError.errorURL` in
+ * src/lib/auth.ts) with the reason in the query string — most often a magic
+ * link for an address nobody invited. It is the library's own wording, and
+ * it is written for the person reading it, so it is shown as given rather
+ * than mapped through a table of codes this app would have to keep current.
+ */
+function refusal(params: { error?: string | string[]; error_description?: string | string[] }) {
+  const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
+  const described = one(params.error_description);
+  if (described) return described;
+  return one(params.error) ? 'That sign-in link could not be used.' : null;
+}
+
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string | string[] }>;
+  searchParams: Promise<{
+    next?: string | string[];
+    error?: string | string[];
+    error_description?: string | string[];
+  }>;
 }) {
-  const [{ next }, session, open] = await Promise.all([
+  const [params, session, open] = await Promise.all([
     searchParams,
     currentSession(),
     signupOpen(),
   ]);
+  const { next } = params;
   const destination = safeNext(next);
+  const problem = refusal(params);
 
   // Already signed in: the login screen has nothing to ask.
   if (session) redirect(destination);
@@ -43,6 +65,14 @@ export default async function LoginPage({
         <CardDescription>Sign in to reach the desk.</CardDescription>
       </CardHeader>
       <CardContent>
+        {problem && (
+          <p
+            role="alert"
+            className="mb-4 rounded-md bg-clay-wash px-3 py-2 text-[13px] leading-5 text-clay-ink"
+          >
+            {problem}
+          </p>
+        )}
         {/* Only while there is an account to make; once the club has an
             operator the link leads to a refusal, which is not an invitation. */}
         <AuthForm mode="login" next={destination} showSignupLink={open} />

@@ -176,7 +176,7 @@ async function pingCoach(env: NotifyEnv, b: Booking): Promise<void> {
 
 
 /** A composed message, before either transport's field names are applied. */
-type Mail = {
+export type Mail = {
   to: string;
   subject: string;
   text: string;
@@ -188,8 +188,12 @@ type Mail = {
 /**
  * Send one email. Returns silently when mail is not configured — a club
  * running on WhatsApp alone is a valid setup, not an error.
+ *
+ * Exported because the office invitations (src/lib/auth.ts) send through the
+ * same Resend account and the same sender. A second copy of this would be a
+ * second place to fix when the club verifies a domain.
  */
-async function deliver(env: NotifyEnv, mail: Mail): Promise<void> {
+export async function deliver(env: NotifyEnv, mail: Mail): Promise<void> {
   const from = env.BOOKING_FROM_EMAIL;
   if (!from || !env.RESEND_API_KEY) return;
 

@@ -105,6 +105,17 @@ const groups: { heading: string; items: NavItem[] }[] = [
           </svg>
         ),
       },
+      {
+        label: 'Team',
+        href: '/admin/invite',
+        icon: (
+          <svg {...iconProps}>
+            <circle cx="6.2" cy="5.4" r="2.6" />
+            <path d="M1.8 13.4c0-2.3 1.9-3.8 4.4-3.8 .9 0 1.8.2 2.5.6" strokeLinecap="round" />
+            <path d="M12.2 8.4v4.6M9.9 10.7h4.6" strokeLinecap="round" />
+          </svg>
+        ),
+      },
     ],
   },
   {
@@ -312,6 +323,10 @@ export default function Sidebar({
                   {operator.email ?? operator.role}
                 </span>
               </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link href="/admin/invite">Invite a colleague</Link>
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 disabled={leaving}
