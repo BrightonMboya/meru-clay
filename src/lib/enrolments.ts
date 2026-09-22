@@ -12,7 +12,7 @@
  */
 
 import { and, asc, eq, sql } from 'drizzle-orm';
-import { db } from './db/client';
+import { db, type Executor } from './db/client';
 import { classEnrolments } from './db/schema';
 import { classKey } from './schedule';
 
@@ -24,6 +24,9 @@ export type Enrolment = {
   className: string;
   name: string;
   phone: string;
+  /** What the place cost on the day it was taken. 0 for a free session. */
+  amount: number;
+  paid: boolean;
 };
 
 /**
@@ -65,7 +68,12 @@ export async function classRoll(
     )
     .orderBy(asc(classEnrolments.createdAt));
 
-  return rows.map((r) => ({
+  return rows.map(toEnrolment);
+}
+
+/** The row, as everything above this file thinks of it. */
+function toEnrolment(r: typeof classEnrolments.$inferSelect): Enrolment {
+  return {
     id: r.id,
     date: r.date,
     court: r.courtId,
@@ -73,7 +81,9 @@ export async function classRoll(
     className: r.className,
     name: r.name,
     phone: r.phone,
-  }));
+    amount: r.amount,
+    paid: r.paid,
+  };
 }
 
 export type EnrolInput = {
@@ -83,6 +93,10 @@ export type EnrolInput = {
   className: string;
   name: string;
   phone?: string;
+  /** From `fee` on the class's row in src/lib/schedule.ts. 0 if it is free. */
+  amount?: number;
+  /** Settled at the desk on the way in. */
+  paid?: boolean;
 };
 
 /**
@@ -102,21 +116,37 @@ export async function enrol(input: EnrolInput): Promise<Enrolment | null> {
       className: input.className,
       name: input.name.trim(),
       phone: input.phone?.trim() ?? '',
+      amount: input.amount ?? 0,
+      paid: Boolean(input.paid),
     })
     .onConflictDoNothing()
     .returning();
 
-  if (!row) return null;
+  return row ? toEnrolment(row) : null;
+}
 
-  return {
-    id: row.id,
-    date: row.date,
-    court: row.courtId,
-    start: row.startMin,
-    className: row.className,
-    name: row.name,
-    phone: row.phone,
-  };
+export async function getEnrolment(id: number, tx: Executor = db): Promise<Enrolment | null> {
+  const [row] = await tx
+    .select()
+    .from(classEnrolments)
+    .where(eq(classEnrolments.id, id))
+    .limit(1);
+  return row ? toEnrolment(row) : null;
+}
+
+/**
+ * Mark a class place settled up. Mirrors `markPaid` on a booking, executor
+ * and all, so that paying for a class online is one transaction with the
+ * payment that bought it.
+ */
+export async function markEnrolmentPaid(id: number, tx: Executor = db): Promise<boolean> {
+  const rows = await tx
+    .update(classEnrolments)
+    .set({ paid: true })
+    .where(and(eq(classEnrolments.id, id), eq(classEnrolments.status, 'booked')))
+    .returning({ id: classEnrolments.id });
+
+  return rows.length > 0;
 }
 
 /**

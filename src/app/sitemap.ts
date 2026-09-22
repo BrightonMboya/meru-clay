@@ -14,5 +14,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: 'monthly',
       priority: 1,
     },
+    {
+      // Listed, unlike /book: this one is a destination members are sent to
+      // and will look for again, and there is nothing live on it to go stale.
+      url: `${base}/renew`,
+      lastModified: new Date(),
+      changeFrequency: 'yearly',
+      priority: 0.3,
+    },
   ];
 }

@@ -35,3 +35,16 @@ if (process.env.NODE_ENV !== 'production') globalForDb.__meruSql = sql;
 
 export const db = drizzle(sql, { schema });
 export { sql };
+
+/**
+ * `db`, or a transaction standing in for it.
+ *
+ * Most storage functions here talk to `db` directly, which is right: each is
+ * one statement and one statement is already atomic. Fulfilling a payment is
+ * the exception — it confirms a court and stamps the payment, and half of
+ * that happening is a court somebody paid for that the club has no record of
+ * selling. So the few functions `fulfil` calls take an executor and default
+ * to `db`, which lets them be composed into one transaction without every
+ * other caller having to know that transactions exist.
+ */
+export type Executor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];

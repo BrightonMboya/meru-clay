@@ -258,15 +258,120 @@ domain of our own, at the cost of only delivering to the address that owns the
 Resend account — which is why that address is `BOOKING_TO_EMAIL`. Verify a
 domain with Resend to lift that, and point `BOOKING_FROM_EMAIL` at it.
 
+## Taking money — Snippe
+
+The club is on [Snippe](https://snippe.sh), a Tanzanian PSP covering M-Pesa,
+Airtel Money, Mixx by Yas and Halotel. Flutterwave was here first and was
+removed: it does not serve Tanzania.
+
+Snippe is **direct-charge**, not a hosted checkout. `/pay/[id]` collects the
+number the payer wants to pay from, Snippe pushes a USSD prompt to that
+handset, and the page polls until the money lands. There is nowhere to
+redirect to, which is the right shape for an audience arriving from a
+WhatsApp link on a patchy connection.
+
+### The pieces
+
+| File | Job |
+| --- | --- |
+| `src/lib/snippe.ts` | The only file that knows Snippe exists. Charging, verifying, signature checking. |
+| `src/lib/settle.ts` | Provider answer → money recorded → club delivers. One implementation, three callers. |
+| `src/app/api/payments/[id]/pay` | Sends the USSD prompt. |
+| `src/app/api/payments/webhook` | Where Snippe reports back. Verifies the HMAC, then goes and *asks*. |
+| `src/app/api/cron/payments` | Re-verifies anything the webhook missed. |
+
+The rule the whole thing turns on: **a webhook is a nudge, never evidence.**
+A valid signature proves the delivery came from Snippe, not that it is
+current or truthful about the transaction. So nothing settles on a webhook
+body — `settle()` calls Snippe's own API and checks four things (right
+payment, completed, TZS, amount at least what was owed) before a shilling is
+recorded.
+
+### Testing it — there is no sandbox
+
+Snippe say so themselves: *"There is no sandbox environment. Use a small live
+amount (minimum 500 TZS) to verify the end-to-end flow on a staging site,
+then enable on production."*
+
+So testing is in two tiers.
+
+**Tier 1 — the stub, no money.** `scripts/snippe-stub.mjs` speaks Snippe's
+protocol: the same envelopes, the same 500 TZS floor, the same 30-character
+idempotency cap, and webhooks signed with the same HMAC. Nothing in `src/`
+knows it exists — the only thing that changes is `SNIPPE_API_URL`, so the
+code under test is the code that will face the real thing.
+
+```bash
+# terminal 1
+SNIPPE_WEBHOOK_SECRET=whsec_dev npm run snippe:stub
+
+# .env
+SNIPPE_API_KEY=snp_dev_stub_key
+SNIPPE_WEBHOOK_SECRET=whsec_dev        # must match the stub
+SNIPPE_API_URL=http://localhost:4242
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
+
+# terminal 2
+npm run dev
+```
+
+Open a payment link, pay with any Tanzanian-shaped number, then drive the
+outcome:
+
+```bash
+curl -X POST localhost:4242/_stub/last/complete   # money arrives → fulfilled
+curl -X POST localhost:4242/_stub/last/fail       # declined → payer can retry
+curl -X POST localhost:4242/_stub/last/short      # underpaid → goes to a person
+curl -X POST localhost:4242/_stub/last/expire     # prompt timed out
+curl localhost:4242/_stub                         # what the stub is holding
+```
+
+`AUTO_COMPLETE_MS=3000` completes every charge by itself, which is the
+closest thing to a happy path on a real handset.
+
+To test the *sweep* rather than the webhook, make the delivery fail: stop the
+dev server, complete the transaction (the stub logs the refused delivery and
+carries on), start the server again, and run the sweep by hand. Ten minutes
+of quiet is the threshold, so nudge `updated_at` back or edit `QUIET_MINUTES`
+while testing.
+
+```bash
+curl -X POST localhost:3000/api/cron/payments?job=sweep \
+  -H "authorization: Bearer $CRON_SECRET"
+```
+
+The payment should settle from the sweep alone. That path is the one that
+saves a member whose webhook never arrived, and it is worth watching work.
+
+**The refusals.** `scripts/snippe-replay.mjs` posts deliveries the stub
+cannot produce — the ones that should be turned away. Each exits non-zero if
+the endpoint accepts what it should refuse:
+
+```bash
+npm run snippe:replay -- --unsigned --tx-ref mc_<id>_1   # → 401
+npm run snippe:replay -- --forge    --tx-ref mc_<id>_1   # → 401
+npm run snippe:replay -- --stale 3600 --tx-ref mc_<id>_1 # → 401, replay window
+npm run snippe:replay -- --tx-ref mc_00000000-0000-0000-0000-000000000000_1
+                                                          # → 200, unmatched, logged
+```
+
+**Tier 2 — one live run, ~500 TZS.** On staging, with the real `snp_` key and
+webhook secret, `SNIPPE_API_URL` unset, and `NEXT_PUBLIC_SITE_URL` pointing
+at the staging host — the webhook URL is sent with every charge and derived
+from it, so staging and production can share one Snippe account without
+stealing each other's callbacks. Then pay a real 500 TZS from a real handset
+and watch it land on Takings. What this proves that the stub cannot: that
+metadata really does survive the round trip, that their signature really is
+computed the way the docs say, and that the money is actually collectable.
+
 ## Not built yet
 
 - **A database.** See [Storage](#storage). Everything else waits on this —
   every club-office screen is rendering sample content until it exists.
-- **Takings.** The sidebar links to it because the design's sidebar does, but
-  there is no artboard for it. `/admin/takings/page.tsx` is a placeholder
-  saying so; delete the file when the screen is designed.
-- Payment. Bookings are held, then confirmed manually. Wiring AzamPay or
-  ClickPesa means calling `confirmBooking()` from a webhook.
+- Paying for a court online. Memberships and class places can be paid for;
+  a court is still held and settled at the desk. The ledger and `fulfil()`
+  both already handle a booking payment — what is missing is a `priceBooking`
+  in `src/lib/purchase.ts` and a pay button on `/book/[id]`.
 - Group-class seat booking. Classes currently only _block_ courts; nobody can
   book a seat in one. That needs a `class_instances` table and a capacity count.
 - Punch cards. The 12/24/40 tiers on the pricing section are a credits system

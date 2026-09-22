@@ -330,6 +330,110 @@ export async function notifyEnquiry(env: NotifyEnv, e: Enquiry): Promise<void> {
   }
 }
 
+/**
+ * Money arrived and the club cannot deliver.
+ *
+ * Almost always one thing: a court whose hold lapsed and was resold while
+ * the player was authorising a mobile-money push. The payment is real, the
+ * slot is gone, and the choice between a refund and another time is the
+ * club's to make — see the header of src/lib/fulfil.ts.
+ *
+ * This is the loudest notification in the app, and it goes to both channels
+ * the club watches, because the alternative to somebody noticing is a player
+ * who paid and got nothing. It is also the only notification here that
+ * reports a problem rather than an event: everything else can afford to be
+ * missed, and this cannot.
+ *
+ * Never throws. The payment is already recorded and sits on Takings under
+ * "Needs attention" whether or not this gets through.
+ */
+export async function notifyPaymentProblem(
+  env: NotifyEnv,
+  payment: { id: string; amount: number; name: string; phone: string; purpose: string },
+  reason: string,
+): Promise<void> {
+  const ref = payment.id.slice(0, 8);
+  const money = `TSh ${payment.amount.toLocaleString('en-US')}`;
+  const lines: Array<[string, string]> = [
+    ['Paid', money],
+    ['For', payment.purpose],
+    ['Player', payment.name],
+    ['Phone', payment.phone || '—'],
+    ['Problem', reason],
+    ['Reference', ref],
+  ];
+
+  const text = [
+    'A PAYMENT NEEDS ATTENTION.',
+    '',
+    `${payment.name} paid ${money} and the club could not complete it.`,
+    reason,
+    '',
+    ...lines.map(([k, v]) => `${k}: ${v}`),
+    '',
+    'It is on the Takings screen under "Needs attention". Refund or offer',
+    'another time — the money is real and the player is waiting.',
+  ].join('\n');
+
+  const jobs = [
+    env.BOOKING_TO_EMAIL
+      ? deliver(env, {
+          to: env.BOOKING_TO_EMAIL,
+          subject: `⚠ Payment needs attention — ${payment.name}, ${money}`,
+          text,
+          html: [
+            '<p><strong>A payment needs attention.</strong></p>',
+            `<p>${escapeHtml(payment.name)} paid <strong>${money}</strong> and the club could not complete it.</p>`,
+            `<p>${escapeHtml(reason)}</p>`,
+            '<table cellpadding="6" cellspacing="0" style="border-collapse:collapse;font:15px system-ui,sans-serif">',
+            ...lines.map(
+              ([k, v]) =>
+                `<tr><td style="color:#5F6B62;padding-right:18px">${k}</td><td><strong>${escapeHtml(v)}</strong></td></tr>`,
+            ),
+            '</table>',
+            '<p>It is on the Takings screen under &ldquo;Needs attention&rdquo;.</p>',
+          ].join(''),
+        })
+      : Promise.resolve(),
+    pingCoachText(env, text),
+  ];
+
+  const results = await Promise.allSettled(jobs);
+  for (const r of results) {
+    if (r.status === 'rejected') console.error('payment problem notice failed:', r.reason);
+  }
+}
+
+/**
+ * Plain WhatsApp text to the coach.
+ *
+ * Only legal inside 24 hours of them last messaging the business number, so
+ * it is genuinely best-effort — but the email above always goes, and a club
+ * whose coach happens to have been in conversation gets told in seconds.
+ */
+async function pingCoachText(env: NotifyEnv, body: string): Promise<void> {
+  if (!env.WHATSAPP_TOKEN || !env.WHATSAPP_PHONE_ID || !env.COACH_WHATSAPP) return;
+
+  const res = await fetch(
+    `https://graph.facebook.com/${GRAPH_VERSION}/${env.WHATSAPP_PHONE_ID}/messages`,
+    {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${env.WHATSAPP_TOKEN}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to: toE164Digits(env.COACH_WHATSAPP),
+        type: 'text',
+        text: { body },
+      }),
+    },
+  );
+
+  if (!res.ok) throw new Error(`whatsapp ${res.status}: ${await res.text()}`);
+}
+
 async function emailPlayer(env: NotifyEnv, b: Booking): Promise<void> {
   if (!b.email) return;
 

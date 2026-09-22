@@ -25,6 +25,16 @@ export type ClassRow = {
   age?: string;
   /** Which court the class occupies. Court A (id 1) is the floodlit one. */
   court: number;
+  /**
+   * What a place costs, in shillings. Absent means free, which is what the
+   * club's one standing session is — so leaving it off a new row is the safe
+   * default rather than an oversight waiting to charge somebody.
+   *
+   * Copied onto the enrolment when a place is taken, not read back through
+   * this file afterwards: repricing a class next season must not rewrite
+   * what somebody paid for it last one. Same reasoning as `class_name`.
+   */
+  fee?: number;
 };
 
 export type ScheduleDay = {

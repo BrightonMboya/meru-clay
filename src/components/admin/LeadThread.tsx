@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { useLeadChanges } from '@/hooks/use-lead-changes';
 import { Btn, Chip, Eyebrow, FormError, errorText } from '@/components/admin/ui';
+import { MEMBERSHIPS, MEMBERSHIP_TIERS, fmtTsh, lapses, type MembershipTier } from '@/lib/pricing';
+import { sendJoiningLink } from '@/lib/queries/players';
 import type { ChatDay, ChatMessage } from '@/lib/admin/leads';
 import type { LeadThread as Thread } from '@/lib/admin/load';
 import { LEAD_STAGES, STAGE_LABELS, type LeadStage, type MessageStatus } from '@/lib/pipeline';
@@ -89,6 +91,8 @@ export default function LeadThread({ initial }: { initial: Thread }) {
           </div>
         ))}
       </div>
+
+      <JoinAndPay id={data.id} name={data.name} />
 
       <Chat days={data.chat} name={data.name} />
 
@@ -596,5 +600,84 @@ function Label() {
 function fill(body: string, values: Record<string, string>): string {
   return body.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (whole, key: string) =>
     values[key]?.trim() ? values[key]! : whole,
+  );
+}
+
+/**
+ * Sign them up and let them pay for it.
+ *
+ * The last step of the board, and the only one that crosses out of the leads
+ * table: paying this link creates their roster row, sets their paid-up date
+ * and marks the lead joined, all without anybody retyping a name — see
+ * `applyJoin` in src/lib/fulfil.ts.
+ *
+ * The tier is chosen here rather than read off the lead, because a lead has
+ * no membership: picking one IS the act of signing them up. Only tiers with
+ * a term are offered — there is nothing to pay up front for pay as you play,
+ * and `priceJoin` would refuse it anyway.
+ *
+ * Quiet by default. Most conversations on this screen are not at this point
+ * yet, and a membership sale sitting open above the chat would be the loudest
+ * thing on a page whose job is reading what somebody said.
+ */
+function JoinAndPay({ id, name }: { id: number; name: string }) {
+  const [open, setOpen] = useState(false);
+  const [tier, setTier] = useState<MembershipTier>('monthly');
+  const link = useMutation({ mutationFn: () => sendJoiningLink(id, tier) });
+
+  const tiers = MEMBERSHIPS.filter(lapses);
+
+  if (!open) {
+    return (
+      <div className="flex flex-wrap items-center gap-3">
+        <Btn size="sm" onClick={() => setOpen(true)}>
+          Sign them up
+        </Btn>
+        <span className="text-[13px] leading-[18px] text-neutral-500">
+          Sends {name.split(' ')[0]} a link to pay their first term. Paying puts them on the
+          roster.
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-[10px] border border-neutral-200 bg-neutral-50 px-4 py-4">
+      <Eyebrow>SIGN THEM UP</Eyebrow>
+
+      <div className="flex flex-wrap items-center gap-2">
+        {tiers.map((key) => (
+          <Chip key={key} on={key === tier} chosen="ring" onClick={() => setTier(key)}>
+            {MEMBERSHIP_TIERS[key].label} · TSh {fmtTsh(MEMBERSHIP_TIERS[key].fee)}
+          </Chip>
+        ))}
+      </div>
+
+      {link.isError && <FormError>{errorText(link.error, 'Could not create a link.')}</FormError>}
+
+      {link.data ? (
+        <div className="flex flex-col gap-2">
+          <span className="text-[13px] leading-[18px] text-neutral-600">
+            {link.data.sent
+              ? 'Sent. It is good for three days, and paying it puts them on the roster.'
+              : 'WhatsApp would not carry it — send them this link instead:'}
+          </span>
+          {!link.data.sent && (
+            <code className="select-all break-all rounded-[6px] bg-white px-3 py-2 font-mono text-[12px] leading-4 text-pine">
+              {link.data.url}
+            </code>
+          )}
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <Btn variant="primary" size="sm" disabled={link.isPending} onClick={() => link.mutate()}>
+            {link.isPending ? 'Sending…' : 'Send the link'}
+          </Btn>
+          <Btn variant="quiet" size="sm" onClick={() => setOpen(false)}>
+            Not yet
+          </Btn>
+        </div>
+      )}
+    </div>
   );
 }

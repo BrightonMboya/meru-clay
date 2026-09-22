@@ -106,3 +106,38 @@ export function recordAttendance(input: { playerId: number; date: string }) {
     body: JSON.stringify(input),
   });
 }
+
+/**
+ * What came back from asking for a payment link.
+ *
+ * `sent: false` is not a failure — the payment exists and the URL works.
+ * It means WhatsApp would not carry the message, almost always because the
+ * member has not written to the club in 24 hours and no approved template
+ * is configured. The screen shows the link so the desk can pass it on some
+ * other way. See the header of src/lib/paylink.ts.
+ */
+export type PayLink = {
+  id: string;
+  url: string;
+  amount: number;
+  sent: boolean;
+  sendError: string | null;
+};
+
+/** WhatsApp a member their renewal link. */
+export function sendRenewalLink(playerId: number) {
+  return getJson<PayLink>(`/api/desk/players/${playerId}/pay-link`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ send: true }),
+  });
+}
+
+/** WhatsApp an enquiry a link to join and pay their first term. */
+export function sendJoiningLink(leadId: number, tier: MembershipTier) {
+  return getJson<PayLink>(`/api/desk/leads/${leadId}/pay-link`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ tier, send: true }),
+  });
+}

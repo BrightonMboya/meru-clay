@@ -8,6 +8,8 @@
     "build": "next build",
     "start": "next start",
     "check": "tsc --noEmit",
+    "snippe:stub": "node scripts/snippe-stub.mjs",
+    "snippe:replay": "node scripts/snippe-replay.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",

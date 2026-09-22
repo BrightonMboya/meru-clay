@@ -28,8 +28,8 @@
  * transaction ends.
  */
 
-import { and, asc, between, eq, gt, inArray, lt, or, sql } from 'drizzle-orm';
-import { db } from './db/client';
+import { and, asc, between, eq, gt, inArray, lt, lte, or, sql } from 'drizzle-orm';
+import { db, type Executor } from './db/client';
 import { bookings as bookingsTable, type BookingRecord } from './db/schema';
 import { totalFor } from './pricing';
 import { HOLD_MINUTES, type Duration } from './time';
@@ -207,15 +207,59 @@ export async function createBooking(input: CreateInput, now: number): Promise<Cr
   }
 }
 
-/** Promote a hold to a confirmed booking (called once the coach says yes). */
-export async function confirmBooking(id: string): Promise<boolean> {
-  const rows = await db
+/**
+ * Promote a hold to a confirmed booking (called once the coach says yes, or
+ * the moment the player pays for it online).
+ *
+ * Takes an executor so that paying for a court can confirm it and stamp the
+ * payment in one transaction — see `fulfil` and the note on `Executor` in
+ * src/lib/db/client.ts.
+ */
+export async function confirmBooking(id: string, tx: Executor = db): Promise<boolean> {
+  const rows = await tx
     .update(bookingsTable)
     .set({ status: 'confirmed', expiresAt: null, confirmedAt: new Date() })
     .where(and(eq(bookingsTable.id, id), eq(bookingsTable.status, 'held')))
     .returning({ id: bookingsTable.id });
 
   return rows.length > 0;
+}
+
+/**
+ * Is anybody else's live booking sitting on this one's court and time?
+ *
+ * Asked while fulfilling a payment, and the reason it has to be asked is the
+ * gap between `liveAt` and `uniq_live_slot`. An expired hold still occupies
+ * its exact start minute in that index, but it does NOT block a booking that
+ * merely overlaps — a 60-minute hold that lapsed at 17:30 leaves room for
+ * somebody to take 17:00–18:30. So a player can be entering a mobile-money
+ * PIN while their slot is sold underneath them, and the only honest thing to
+ * do about it is look before confirming.
+ *
+ * Callers hold the court-day advisory lock, so the answer cannot go stale
+ * between here and the confirm.
+ */
+export async function overlappedByOthers(
+  booking: { id: string; court_id: number; date: string; start_min: number; end_min: number },
+  now: number,
+  tx: Executor = db,
+): Promise<boolean> {
+  const [clash] = await tx
+    .select({ id: bookingsTable.id })
+    .from(bookingsTable)
+    .where(
+      and(
+        eq(bookingsTable.courtId, booking.court_id),
+        eq(bookingsTable.date, booking.date),
+        sql`${bookingsTable.id} <> ${booking.id}`,
+        liveAt(new Date(now)),
+        lt(bookingsTable.startMin, booking.end_min),
+        gt(bookingsTable.endMin, booking.start_min),
+      ),
+    )
+    .limit(1);
+
+  return Boolean(clash);
 }
 
 /** Release a slot. The row stays for the record; the partial index lets it resell. */
@@ -230,8 +274,8 @@ export async function cancelBooking(id: string): Promise<boolean> {
 }
 
 /** Mark a booking settled up. The desk chases whatever this has not been called on. */
-export async function markPaid(id: string, paid = true): Promise<boolean> {
-  const rows = await db
+export async function markPaid(id: string, paid = true, tx: Executor = db): Promise<boolean> {
+  const rows = await tx
     .update(bookingsTable)
     .set({ paid })
     .where(eq(bookingsTable.id, id))
@@ -286,6 +330,31 @@ export async function deskBookings(date: string, now: number): Promise<DeskBooki
     .orderBy(asc(bookingsTable.startMin), asc(bookingsTable.courtId));
 
   return rows.map(toDeskBooking);
+}
+
+/**
+ * Money the club has earned on court and not collected.
+ *
+ * Confirmed bookings, on or before today, still unpaid. The three conditions
+ * are each doing work: a held booking is not yet owed for, a booking next
+ * Tuesday is not owed for yet either, and a cancelled one never will be.
+ *
+ * This is the "still owed" figure on Takings, and it is the number the club
+ * has never been able to see — it was only ever a scatter of false booleans.
+ */
+export async function owedOnCourts(today: string): Promise<number> {
+  const [row] = await db
+    .select({ total: sql<number>`coalesce(sum(${bookingsTable.amount}), 0)::int` })
+    .from(bookingsTable)
+    .where(
+      and(
+        eq(bookingsTable.status, 'confirmed'),
+        eq(bookingsTable.paid, false),
+        lte(bookingsTable.date, today),
+      ),
+    );
+
+  return row?.total ?? 0;
 }
 
 /** Court-hours sold per day across a date range, for the desk's week strip. */

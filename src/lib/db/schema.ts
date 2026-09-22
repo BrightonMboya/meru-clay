@@ -17,6 +17,7 @@
 
 import { relations, sql } from 'drizzle-orm';
 import {
+  bigint,
   boolean,
   check,
   date,
@@ -29,6 +30,17 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
+import {
+  CURRENCY,
+  EVENT_SOURCES,
+  PAYMENT_METHODS,
+  PAYMENT_PURPOSES,
+  PAYMENT_STATUSES,
+  type EventSource,
+  type PaymentMethod,
+  type PaymentPurpose,
+  type PaymentStatus,
+} from '../checkout';
 import { MEMBERSHIPS, type MembershipTier } from '../pricing';
 import {
   LEAD_SOURCES,
@@ -167,6 +179,16 @@ export const classEnrolments = pgTable(
     phone: text('phone').notNull().default(''),
     /** 'booked' or 'cancelled'. Cancellations are kept, like bookings. */
     status: text('status').notNull().default('booked').$type<EnrolmentStatus>(),
+    /**
+     * What the place cost, in shillings, on the day they took it — read from
+     * `fee` on the class's row in src/lib/schedule.ts. Stored for the same
+     * reason `class_name` is: today's timetable is the only place the price
+     * lives, and repricing a class next season must not rewrite what somebody
+     * paid last one. 0 is a free session, which is what the club runs now.
+     */
+    amount: integer('amount').notNull().default(0),
+    /** Whether the place has been settled up. Mirrors `bookings.paid`. */
+    paid: boolean('paid').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -417,6 +439,222 @@ export const leadMessages = pgTable(
     check('lead_messages_status_check', sql.raw(`status in (${list(MESSAGE_STATUSES)})`)),
   ],
 );
+
+/**
+ * Money in, one row per thing being bought.
+ *
+ * The club's takings were two booleans before this table: `bookings.paid` and
+ * `players.paid_until`. Both say a payment happened and neither says anything
+ * about it, so "what came in this week", "did their card fail", and "they say
+ * they paid and it is not showing" were all unanswerable. This is the answer
+ * to all three, and `payment_events` below is the paper trail behind it.
+ *
+ * Three things about the shape are deliberate.
+ *
+ * FIRST, `id` is a v4 UUID and it is also the checkout link — /pay/<id>. That
+ * is the same bargain `bookings` already makes: there are no player accounts,
+ * so holding an unguessable URL is the authorisation. See the note on
+ * `cancelOwnBooking` in src/lib/bookings.ts.
+ *
+ * SECOND, one row is one purchase, not one attempt. A declined card followed
+ * by a successful mobile-money push is one payment with two attempts, and the
+ * link the club sent has to survive both — so `attempt` counts up, `tx_ref`
+ * changes with it, and the id in the URL never moves. See `txRefFor`.
+ *
+ * THIRD, `paid_at` and `fulfilled_at` are separate columns and the difference
+ * between them is the whole reason this table is trustworthy. `paid_at` means
+ * the provider's own API confirmed the money. `fulfilled_at` means the club
+ * actually did the thing — confirmed the court, extended the membership. They
+ * are usually a millisecond apart and occasionally they are not: a hold can
+ * lapse and the slot be resold while somebody is typing their PIN. A payment
+ * that is paid and unfulfilled is a real state, it is a person's money, and
+ * the desk has to see it. One column could not have said so.
+ */
+export const payments = pgTable(
+  'payments',
+  {
+    id: text('id').primaryKey(),
+    purpose: text('purpose').notNull().$type<PaymentPurpose>(),
+    status: text('status').notNull().default('pending').$type<PaymentStatus>(),
+    method: text('method').notNull().default('online').$type<PaymentMethod>(),
+    /** Whole Tanzanian shillings. TZS has no subdivision the club uses. */
+    amount: integer('amount').notNull(),
+    currency: text('currency').notNull().default(CURRENCY),
+
+    /**
+     * What is being bought. Exactly one is set, and which one is decided by
+     * `purpose` — see the check constraint below, which is what stops a
+     * membership payment from quietly pointing at nothing.
+     */
+    bookingId: text('booking_id').references(() => bookings.id),
+    /** A renewal: the member already exists. */
+    playerId: integer('player_id').references(() => players.id),
+    /** A joiner: there is no member yet, only the enquiry they came from. */
+    leadId: integer('lead_id').references(() => leads.id),
+    enrolmentId: integer('enrolment_id').references(() => classEnrolments.id),
+    /** Which membership was bought. Decides the term added on fulfilment. */
+    tier: text('tier').$type<MembershipTier>(),
+
+    /**
+     * Who paid, as they were when they paid. Copied rather than joined: the
+     * booking may be edited and the lead may be deleted, and a receipt that
+     * rewrites itself afterwards is not a receipt. Payment providers also
+     * require an email on every charge, so one is stored even where the club
+     * does not otherwise hold it.
+     */
+    name: text('name').notNull(),
+    phone: text('phone').notNull().default(''),
+    email: text('email').notNull(),
+
+    /** Bumped each time a checkout link is minted. See the header note. */
+    attempt: integer('attempt').notNull().default(0),
+    /** `mc_<id>_<attempt>` — what the provider echoes back. */
+    txRef: text('tx_ref'),
+    /**
+     * Where the payer was sent, when the provider works that way. A hosted
+     * checkout fills this in; a provider that pushes straight to a handset
+     * leaves it null.
+     */
+    checkoutUrl: text('checkout_url'),
+    /**
+     * The payment provider's own id for the transaction, set once the money
+     * is confirmed, and their reference beside it. Deliberately not named
+     * after any one provider: this ledger has outlived one already.
+     */
+    providerTxId: bigint('provider_tx_id', { mode: 'number' }),
+    providerRef: text('provider_ref'),
+
+    /** When the link stops working. A booking's matches its hold. */
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    /** The money is ours, verified with the provider and not just claimed. */
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+    /** The club did the thing. See the header note on why this is separate. */
+    fulfilledAt: timestamp('fulfilled_at', { withTimezone: true }),
+    /** Why it failed, or why fulfilment could not happen. Shown to the desk. */
+    failureReason: text('failure_reason'),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    /** Providers refuse a duplicate reference; so do we, one step earlier. */
+    uniqueIndex('uniq_payment_tx_ref').on(t.txRef).where(sql`tx_ref is not null`),
+    /**
+     * One payment per provider transaction, whatever order the webhook and
+     * the cron sweep arrive in — and they do race. This is what makes
+     * "whichever gets here first wins" safe.
+     *
+     * Keyed on `provider_ref` rather than `provider_tx_id` because Snippe's
+     * transaction id is a UUID string, not a number. `provider_tx_id`
+     * survives for a provider that has one — Flutterwave did, and this
+     * ledger is written not to care — but it carries no guarantee now, and
+     * an index that cannot fire is worse than no index at all.
+     */
+    uniqueIndex('uniq_payment_provider_ref')
+      .on(t.providerRef)
+      .where(sql`provider_ref is not null`),
+    index('idx_payments_status').on(t.status, t.createdAt),
+    index('idx_payments_booking').on(t.bookingId),
+    index('idx_payments_player').on(t.playerId),
+    /** The desk's to-do list, as an index: paid, and not yet acted on. */
+    index('idx_payments_unfulfilled')
+      .on(t.paidAt)
+      .where(sql`paid_at is not null and fulfilled_at is null`),
+    check('payments_purpose_check', sql.raw(`purpose in (${list(PAYMENT_PURPOSES)})`)),
+    check('payments_status_check', sql.raw(`status in (${list(PAYMENT_STATUSES)})`)),
+    check('payments_method_check', sql.raw(`method in (${list(PAYMENT_METHODS)})`)),
+    check('payments_tier_check', sql.raw(`tier is null or tier in (${list(MEMBERSHIPS)})`)),
+    check('payments_amount_check', sql`amount >= 0`),
+    /**
+     * A payment must point at the thing it is paying for, and at only that
+     * thing. Written as one constraint rather than three nullability rules
+     * because the rule really is a single sentence: the purpose decides the
+     * target. A membership is the interesting case — it is a renewal (a
+     * player) or a joining (a lead), never both and never neither.
+     */
+    check(
+      'payments_target_check',
+      sql`(
+        purpose = 'booking' and booking_id is not null
+          and player_id is null and lead_id is null and enrolment_id is null
+      ) or (
+        purpose = 'membership' and tier is not null
+          and (player_id is null) <> (lead_id is null)
+          and booking_id is null and enrolment_id is null
+      ) or (
+        purpose = 'class' and enrolment_id is not null
+          and booking_id is null and player_id is null and lead_id is null
+      )`,
+    ),
+  ],
+);
+
+/**
+ * One payment's history, in the order it happened.
+ *
+ * Mostly what the payment provider told us — every webhook, every verify —
+ * plus the club's own fulfilment outcomes, because the timeline is only
+ * useful if it runs all the way to the end. Append-only, and never read by
+ * the payment logic: `payments` above is the state, this is the history.
+ *
+ * It exists for the conversation that starts "I paid on Saturday and it is
+ * not showing", which cannot be settled from a status column alone. What the
+ * desk needs is that the webhook arrived at 14:02 saying pending, the verify
+ * at 14:12 said successful, and fulfilment refused at 14:12 because the court
+ * had gone.
+ *
+ * Rows with no `payment_id` are kept rather than dropped. An event we cannot
+ * match to a payment is the most interesting kind there is — it means money
+ * moved that this system does not know about, and deleting it would destroy
+ * the only evidence.
+ */
+export const paymentEvents = pgTable(
+  'payment_events',
+  {
+    id: serial('id').primaryKey(),
+    /** Null when the event could not be matched. See the header note. */
+    paymentId: text('payment_id').references(() => payments.id, { onDelete: 'set null' }),
+    source: text('source').notNull().$type<EventSource>(),
+    /** The provider's event name, e.g. 'payment.completed'. */
+    event: text('event').notNull(),
+    /**
+     * The provider's id for the DELIVERY — Snippe's `evt_...`. Distinct from
+     * the reference below, which identifies the transaction: one transaction
+     * produces several events, and one event may be delivered several times.
+     * This is the column the duplicate guard hangs on. Null for our own
+     * notes, which are not deliveries and are never repeats.
+     */
+    eventId: text('event_id'),
+    /** The provider's id for the transaction. Snippe's `reference`. */
+    providerRef: text('provider_ref'),
+    providerTxId: bigint('provider_tx_id', { mode: 'number' }),
+    /** The provider's own status word, stored exactly as they said it. */
+    status: text('status'),
+    amount: integer('amount'),
+    /** The entire body, verbatim. The point of the table. */
+    raw: text('raw').notNull(),
+    receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    /**
+     * Payment providers retry a webhook until it is acknowledged, so the
+     * same event WILL arrive more than once. The same protection, and for
+     * the same reason, as `uniq_lead_message_wamid` on the WhatsApp side —
+     * and keyed the same way, on the id the provider stamped the delivery
+     * with rather than on anything we infer from its contents.
+     */
+    uniqueIndex('uniq_payment_event_id').on(t.eventId).where(sql`event_id is not null`),
+    index('idx_payment_events_payment').on(t.paymentId, t.receivedAt),
+    check('payment_events_source_check', sql.raw(`source in (${list(EVENT_SOURCES)})`)),
+  ],
+);
+
+export type PaymentRecord = typeof payments.$inferSelect;
+export type NewPayment = typeof payments.$inferInsert;
+export type PaymentEventRecord = typeof paymentEvents.$inferSelect;
 
 export type BookingRecord = typeof bookings.$inferSelect;
 export type NewBooking = typeof bookings.$inferInsert;

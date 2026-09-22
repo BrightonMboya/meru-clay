@@ -18,10 +18,10 @@
  * "moved up a level this month"; see `promotions` in the view model.
  */
 
-import { and, asc, eq, gte, inArray, lte, ne, sql } from 'drizzle-orm';
-import { db } from './db/client';
+import { and, asc, eq, gte, inArray, isNull, lte, ne, or, sql } from 'drizzle-orm';
+import { db, type Executor } from './db/client';
 import { bookings, classEnrolments, players } from './db/schema';
-import { MEMBERSHIP_TIERS, type MembershipTier } from './pricing';
+import { MEMBERSHIP_TIERS, lapses, type MembershipTier } from './pricing';
 import type { MaybeLevel, PlayerAvailability, PlayerRole } from './roster';
 
 /** One person, as everything above this file thinks of them. */
@@ -78,12 +78,57 @@ export function listPlayers(): Promise<PlayerRow[]> {
   return db.select(shape).from(players).where(eq(players.active, true)).orderBy(asc(players.name));
 }
 
-export async function getPlayer(id: number): Promise<PlayerRow | null> {
-  const [row] = await db
+export async function getPlayer(id: number, tx: Executor = db): Promise<PlayerRow | null> {
+  const [row] = await tx
     .select(shape)
     .from(players)
     .where(and(eq(players.id, id), eq(players.active, true)));
   return row ?? null;
+}
+
+/**
+ * The live member on a number, if there is one.
+ *
+ * Used by /renew, where somebody types their phone number to be sent a
+ * payment link. `uniq_player_phone` guarantees at most one active row per
+ * number, so this cannot be ambiguous — and a number with no row is the
+ * normal case, not an error.
+ *
+ * The caller must never tell the outside world which of the two happened.
+ * See the note on non-enumeration in src/app/api/join/route.ts.
+ */
+export async function playerByPhone(phone: string): Promise<PlayerRow | null> {
+  if (!phone) return null;
+  const [row] = await db
+    .select(shape)
+    .from(players)
+    .where(and(eq(players.phone, phone), eq(players.active, true)))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * Members whose term runs out on or before `through`, soonest first.
+ *
+ * The reminder job's queue. Only tiers with a term can appear — pay as you
+ * play never falls due, which is the whole point of it — and that filter is
+ * `lapses`, not a hardcoded list, so adding a tier does not silently start
+ * chasing people who owe nothing.
+ */
+export async function dueBy(through: string): Promise<PlayerRow[]> {
+  const rows = await db
+    .select(shape)
+    .from(players)
+    .where(
+      and(
+        eq(players.active, true),
+        eq(players.role, 'member'),
+        or(isNull(players.paidUntil), lte(players.paidUntil, through)),
+      ),
+    )
+    .orderBy(asc(players.paidUntil));
+
+  return rows.filter((r) => lapses(r.membership));
 }
 
 /**
@@ -180,9 +225,10 @@ export type NewPlayerInput = {
 export async function createPlayer(
   input: NewPlayerInput,
   today: string,
+  tx: Executor = db,
 ): Promise<PlayerRow | null> {
   const level = input.level ?? null;
-  const [row] = await db
+  const [row] = await tx
     .insert(players)
     .values({
       name: input.name.trim(),
@@ -276,17 +322,34 @@ export async function setLevel(
  * one runs out — so paying early extends rather than resets, and a member who
  * lapsed three months ago starts a fresh term rather than buying back time
  * they did not use. Pay as you play has no term and so cannot be paid.
+ *
+ * `tier` is the tier that was PAID FOR, and is passed by anything settling a
+ * payment rather than being read off the roster row. The two can differ: a
+ * member sent a monthly link who is switched to Term at the desk before they
+ * pay would otherwise be given three months for ninety thousand shillings,
+ * or a term-payer given one month for two hundred and forty. The money
+ * decides the term, not the row — see `payments.tier` in src/lib/db/schema.ts
+ * and `applyRenewal` in src/lib/fulfil.ts.
+ *
+ * It is optional because the desk's own "Take a payment" button has no
+ * separate tier to quote: money over the counter is for whatever the member
+ * is on, which is the row.
  */
-export async function markMembershipPaid(id: number, today: string): Promise<PlayerRow | null> {
-  const current = await getPlayer(id);
+export async function markMembershipPaid(
+  id: number,
+  today: string,
+  opts: { tx?: Executor; tier?: MembershipTier } = {},
+): Promise<PlayerRow | null> {
+  const tx = opts.tx ?? db;
+  const current = await getPlayer(id, tx);
   if (!current) return null;
 
-  const { months } = MEMBERSHIP_TIERS[current.membership];
+  const { months } = MEMBERSHIP_TIERS[opts.tier ?? current.membership];
   if (months === 0) return current;
 
   const from = current.paidUntil && current.paidUntil > today ? current.paidUntil : today;
 
-  const [row] = await db
+  const [row] = await tx
     .update(players)
     .set({ paidUntil: sql`(${from}::date + ${`${months} months`}::interval)::date` })
     .where(and(eq(players.id, id), eq(players.active, true)))

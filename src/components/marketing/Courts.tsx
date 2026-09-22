@@ -11,13 +11,13 @@ import { OPEN_MIN, fmtTime24 } from '@/lib/time';
 const photos: Record<number, { img: string; pos: string; alt: string }> = {
   1: {
     img: '/images/court-floodlit.jpg',
-    pos: 'object-[center_30%]',
-    alt: 'The net and white lines stretched taut across the red clay of Court A',
+    pos: 'object-[center_50%]',
+    alt: 'Court A at dusk, floodlight mast standing over the net and the red clay',
   },
   2: {
     img: '/images/court-academy.jpg',
-    pos: 'object-[center_35%]',
-    alt: 'Crushed-brick clay surface of Court B marked with crisp white lines under dappled shadow',
+    pos: 'object-[center_40%]',
+    alt: 'Court B seen from the baseline, its crushed-brick clay running up to the tree line',
   },
 };
 

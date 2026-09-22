@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import { Modal } from '@/components/admin/Modal';
 import {
   Avatar,
@@ -22,7 +23,7 @@ import {
 } from '@/components/ui/select';
 import type { Player } from '@/lib/admin/players';
 import { MEMBERSHIPS, MEMBERSHIP_TIERS, fmtTsh } from '@/lib/pricing';
-import type { PlayerEdit } from '@/lib/queries/players';
+import { sendRenewalLink, type PayLink, type PlayerEdit } from '@/lib/queries/players';
 import {
   AVAILABILITIES,
   AVAILABILITY_LABEL,
@@ -89,6 +90,15 @@ export function PlayerModal({
   const [draft, setDraft] = useState<Draft>(() => draftOf(player));
   const [confirmRemove, setConfirmRemove] = useState(false);
 
+  /**
+   * Ask the member to pay, rather than recording that they have.
+   *
+   * Fires on press and reports back in place. A failed send is not a failed
+   * link — see `PayLink` — so the URL is shown either way and the sentence
+   * next to the button says which happened.
+   */
+  const link = useMutation({ mutationFn: (id: number) => sendRenewalLink(id) });
+
   function set<K extends keyof Draft>(key: K, value: Draft[K]) {
     setDraft((d) => ({ ...d, [key]: value }));
   }
@@ -96,6 +106,14 @@ export function PlayerModal({
   const patch = changes(player, draft);
   const dirty = Object.keys(patch).length > 0;
   const tier = MEMBERSHIP_TIERS[draft.membership];
+  /*
+   * The tier as SAVED, which is the only thing a payment link can be priced
+   * from: `priceRenewal` reads the roster row, not this dialog. Gating the
+   * button on the draft instead meant switching the dropdown to Monthly and
+   * pressing send got a refusal from the server, and switching Monthly to
+   * Term sent a link for Monthly's price. Change the tier, save, then send.
+   */
+  const saved = MEMBERSHIP_TIERS[player.membership];
 
   return (
     <Modal label={`${player.name} — profile`} onClose={onClose}>
@@ -249,6 +267,41 @@ export function PlayerModal({
                   {paidLine(player, draft)}
                 </span>
               </div>
+
+              {/*
+                The other way to be paid, and it sends rather than records.
+                "Take a payment" above is the desk saying money changed hands
+                at the counter; this asks the member to pay from their phone.
+                Deliberately outside the draft — it goes the moment it is
+                pressed, because there is nothing to change your mind about
+                and a link that waited for Save would be a surprise. Which
+                is also why it is priced off the saved tier: see `saved`.
+              */}
+              {saved.months > 0 && (
+                <div className="flex flex-col gap-2 border-t border-neutral-200 pt-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Btn
+                      size="sm"
+                      disabled={link.isPending || !player.phone}
+                      onClick={() => link.mutate(player.id)}
+                    >
+                      {link.isPending ? 'Sending…' : 'Send a payment link'}
+                    </Btn>
+                    <span className="text-[13px] leading-[18px] text-neutral-500">
+                      {linkLine(player, link.data, link.isError)}
+                    </span>
+                  </div>
+                  {/*
+                    Shown whenever the message did not go — the desk still has
+                    something to read down the phone or paste into a chat.
+                  */}
+                  {link.data && !link.data.sent && (
+                    <code className="select-all break-all rounded-[6px] bg-neutral-100 px-3 py-2 font-mono text-[12px] leading-4 text-pine">
+                      {link.data.url}
+                    </code>
+                  )}
+                </div>
+              )}
             </Section>
           )}
 
@@ -396,6 +449,15 @@ function levelNote(from: MaybeLevel, to: MaybeLevel): string {
     return `Saving moves them up from ${from} — they show in the “moved up a level” rail for the rest of the month.`;
   }
   return `Saving moves them down from ${from}. The rail only reports moves up.`;
+}
+
+/** What to say beside "Send a payment link", before and after pressing it. */
+function linkLine(player: Player, result: PayLink | undefined, failed: boolean): string {
+  if (failed) return 'Could not create a link. Try again.';
+  if (!player.phone) return 'No number on file, so there is nowhere to send it.';
+  if (!result) return 'WhatsApps them a link to pay their next term.';
+  if (result.sent) return `Sent to ${player.phone}. It is good for three days.`;
+  return 'WhatsApp would not carry it — send them this link instead:';
 }
 
 function paidLine(player: Player, draft: Draft): string {

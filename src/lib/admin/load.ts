@@ -11,12 +11,12 @@ import {
   messageTotals,
   sentToday,
 } from '../leads';
-import { deskBookings, hoursByDate } from '../bookings';
+import { deskBookings, hoursByDate, owedOnCourts } from '../bookings';
 import { enrolmentCounts } from '../enrolments';
 import { lastAttendedByPlayer } from '../attendance';
-import { bookedBetween, lastPlayedByPhone, listCoaches, listPlayers } from '../players';
+import { bookedBetween, dueBy, lastPlayedByPhone, listCoaches, listPlayers } from '../players';
 import { initialsOf } from '../roster';
-import { addDays, isValidDate, nowLocal } from '../time';
+import { addDays, isValidDate, nowLocal, weekdayOf } from '../time';
 import {
   periodStart,
   replyWindow,
@@ -25,6 +25,9 @@ import {
   type Period,
 } from '../pipeline';
 import { numberHealth, templates, type WaTemplate } from '../whatsapp';
+import { listPayments } from '../payments';
+import { MEMBERSHIP_TIERS } from '../pricing';
+import { buildTakings, type Takings } from './takings';
 import { deskDay, weekDates, type Desk } from './desk';
 import {
   buildBoard,
@@ -103,6 +106,50 @@ export const loadRoster = cache(async (): Promise<Roster> => {
     bookedBetween(today, addDays(today, 6)),
   ]);
   return buildRoster({ today, rows, lastPlayed, attended, bookedThisWeek });
+});
+
+/**
+ * Takings, from the database.
+ *
+ * The window is deliberately generous — eight weeks — and then filtered in
+ * the browser, on the same reasoning `loadLeadBoard` gives: a club this size
+ * has tens of payments a week, holding them all lets the screen re-filter
+ * without a round trip, and one query that every view shares cannot disagree
+ * with itself. Revisit when the ledger runs to thousands.
+ *
+ * The two "still owed" figures come from different tables and neither is a
+ * payment: money owed is by definition money with no payment row. `owedOnCourts`
+ * sums confirmed unpaid bookings that have already happened; the membership
+ * side sums the fee of every member past their date. Both are what the club
+ * should chase, and neither could be counted before.
+ */
+export const loadTakings = cache(async (weeks = 8): Promise<Takings> => {
+  const clock = nowLocal();
+  const from = new Date(clock.epochMs - weeks * 7 * 86_400_000);
+  const today = clock.date;
+
+  const [payments, courts, due] = await Promise.all([
+    listPayments(from, new Date(clock.epochMs)),
+    owedOnCourts(today),
+    dueBy(today),
+  ]);
+
+  // Local midnight at the club, as epoch ms. `nowLocal` already knows how
+  // far into the club's day we are, so subtracting it is exact and needs no
+  // timezone arithmetic of its own — see the header of src/lib/time.ts.
+  const startOfToday = clock.epochMs - clock.minutes * 60_000;
+  // Monday. `weekdayOf` is 0 = Sunday, so Sunday counts as the seventh day.
+  const sinceMonday = (weekdayOf(today) + 6) % 7;
+  const startOfWeek = startOfToday - sinceMonday * 86_400_000;
+
+  return buildTakings({
+    epochMs: clock.epochMs,
+    startOfToday,
+    startOfWeek,
+    payments,
+    owedOnCourts: courts,
+    owedOnMemberships: due.reduce((sum, p) => sum + MEMBERSHIP_TIERS[p.membership].fee, 0),
+  });
 });
 
 /**

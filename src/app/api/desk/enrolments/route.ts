@@ -58,6 +58,8 @@ export async function POST(request: Request) {
   const phone = raw ? raw.replace(/^(\+?255|0)/, '+255') : '';
 
   try {
+    // The fee comes off the timetable, never off the request: the desk can
+    // sign somebody up, and cannot decide what a class costs.
     const placed = await enrol({ ...asked, className: asked.className, name, phone });
     if (!placed) return json({ error: 'That number already has a place in this class.' }, 409);
     return json(placed, 201);
@@ -75,14 +77,16 @@ function classAt(
   date: unknown,
   court: number,
   start: number,
-): { date: string; court: number; start: number; className: string } | { error: string } {
+):
+  | { date: string; court: number; start: number; className: string; amount: number }
+  | { error: string } {
   if (!isValidDate(date)) return { error: 'Pick a date.' };
   if (!COURTS.some((c) => c.id === court)) return { error: 'Unknown court.' };
 
   const running = classesOn(weekdayOf(date)).find((c) => c.court === court && c.start === start);
   if (!running) return { error: 'No class runs on that court at that time.' };
 
-  return { date, court, start, className: running.name };
+  return { date, court, start, className: running.name, amount: running.fee ?? 0 };
 }
 
 function json(body: unknown, status = 200) {

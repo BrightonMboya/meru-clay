@@ -17,11 +17,11 @@ export default function Hero() {
       <div className="absolute inset-0">
         <Image
           src="/images/hero-court.jpg"
-          alt="Clay tennis court at Meru Clay, a player serving in the low Arusha sun"
+          alt="Overhead view of a player serving on the red clay at Meru Clay, long shadows across the court"
           fill
           priority
           sizes="100vw"
-          className="object-cover object-[center_50%]"
+          className="object-cover object-[80%_50%] sm:object-[center_50%]"
         />
       </div>
       {/* Scrims */}
@@ -87,7 +87,7 @@ export default function Hero() {
         </h1>
 
         <div className="flex flex-col items-start gap-8 pt-9 md:flex-row md:items-end md:justify-between">
-          <p className="max-w-[440px] text-[17px] leading-[27px] text-mist md:text-[18px] md:leading-[28px]">
+          <p className="max-w-[440px] text-[17px] leading-[27px] text-mist md:text-[18px] md:leading-[28px] xl:max-w-[720px]">
             Crushed brick, the slow red bounce, and the long shadow of Mount Meru. A members&apos;
             tennis club built around the most beautiful surface in the game.
           </p>
