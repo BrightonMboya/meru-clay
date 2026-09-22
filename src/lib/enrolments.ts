@@ -11,7 +11,7 @@
  * changes what the desk knows and nothing about what /book can sell.
  */
 
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, lte, sql } from 'drizzle-orm';
 import { db, type Executor } from './db/client';
 import { classEnrolments } from './db/schema';
 import { classKey } from './schedule';
@@ -161,4 +161,63 @@ export async function unenrol(id: number): Promise<boolean> {
     .returning({ id: classEnrolments.id });
 
   return rows.length > 0;
+}
+
+/**
+ * Class places over a window, counted.
+ *
+ * The third register of who has been on court, alongside the attendance
+ * rows and the bookings — see `bookingTotals` in src/lib/bookings.ts for
+ * why none of the three can stand in for the others. Cancelled places fall
+ * out: a place given up is part of the record, but nobody played on it.
+ */
+export type EnrolmentTotals = {
+  from: string;
+  to: string;
+  /** Places taken. Somebody in two classes is two places. */
+  places: number;
+  /** Distinct phone numbers among them. */
+  people: number;
+  /** Places with no number on file, so outside `people`. */
+  anonymous: number;
+  /** Distinct runnings of a class — date, court and start time. */
+  sessions: number;
+  /** Shillings, split by whether the money has actually come in. */
+  paid: number;
+  unpaid: number;
+};
+
+export async function enrolmentTotals(from: string, to: string): Promise<EnrolmentTotals> {
+  const [row] = await db
+    .select({
+      places: sql<number>`count(*)::int`,
+      people: sql<number>`count(distinct ${classEnrolments.phone}) filter (
+        where ${classEnrolments.phone} <> '')::int`,
+      anonymous: sql<number>`count(*) filter (where ${classEnrolments.phone} = '')::int`,
+      sessions: sql<number>`count(distinct (
+        ${classEnrolments.date}, ${classEnrolments.courtId}, ${classEnrolments.startMin}))::int`,
+      paid: sql<number>`coalesce(sum(${classEnrolments.amount}) filter (
+        where ${classEnrolments.paid}), 0)::int`,
+      unpaid: sql<number>`coalesce(sum(${classEnrolments.amount}) filter (
+        where not ${classEnrolments.paid}), 0)::int`,
+    })
+    .from(classEnrolments)
+    .where(
+      and(
+        gte(classEnrolments.date, from),
+        lte(classEnrolments.date, to),
+        eq(classEnrolments.status, 'booked'),
+      ),
+    );
+
+  return {
+    from,
+    to,
+    places: row?.places ?? 0,
+    people: row?.people ?? 0,
+    anonymous: row?.anonymous ?? 0,
+    sessions: row?.sessions ?? 0,
+    paid: row?.paid ?? 0,
+    unpaid: row?.unpaid ?? 0,
+  };
 }

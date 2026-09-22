@@ -28,7 +28,7 @@
  * transaction ends.
  */
 
-import { and, asc, between, eq, gt, inArray, lt, lte, or, sql } from 'drizzle-orm';
+import { and, asc, between, eq, gt, inArray, like, lt, lte, or, sql } from 'drizzle-orm';
 import { db, type Executor } from './db/client';
 import { bookings as bookingsTable, type BookingRecord } from './db/schema';
 import { totalFor } from './pricing';
@@ -290,6 +290,35 @@ export async function getBooking(id: string): Promise<Booking | null> {
 }
 
 /** The same row with the desk's extra fields — expiry, payment, amount. */
+/**
+ * A booking by the reference the desk quotes.
+ *
+ * The id is a UUID and nobody reads one out; every screen shows its first
+ * eight characters and that is what gets written on a scrap of paper and
+ * repeated over the phone. So this accepts either — a full id, or any prefix
+ * of one — and is the only lookup that does.
+ *
+ * Ambiguity is reported rather than resolved. Eight hex characters is four
+ * billion, so two bookings sharing a prefix will realistically never happen;
+ * if it does, picking one of them silently is the one behaviour that could
+ * cancel the wrong person's court.
+ */
+export async function bookingByReference(
+  ref: string,
+): Promise<{ booking: DeskBooking } | { ambiguous: DeskBooking[] } | null> {
+  const rows = await db
+    .select()
+    .from(bookingsTable)
+    // `like` with the prefix, not a regex: the primary key index can serve it.
+    .where(like(bookingsTable.id, `${ref}%`))
+    .orderBy(asc(bookingsTable.createdAt))
+    .limit(5);
+
+  if (rows.length === 0) return null;
+  if (rows.length > 1) return { ambiguous: rows.map(toDeskBooking) };
+  return { booking: toDeskBooking(rows[0]) };
+}
+
 export async function getBookingDetail(id: string): Promise<DeskBooking | null> {
   const [row] = await db.select().from(bookingsTable).where(eq(bookingsTable.id, id)).limit(1);
   return row ? toDeskBooking(row) : null;
@@ -376,4 +405,75 @@ export async function hoursByDate(from: string, to: string): Promise<Record<stri
     .groupBy(bookingsTable.date);
 
   return Object.fromEntries(rows.map((r) => [r.date, (r.minutes ?? 0) / 60]));
+}
+
+/**
+ * Court bookings over a window, counted.
+ *
+ * "How many people played between these dates?" as the bookings table can
+ * answer it — which is not the same question the attendance register
+ * answers, and is not interchangeable with it. Two differences matter and
+ * are the reason both exist:
+ *
+ *   - A booking is a slot sold, not a person on court. Four players on one
+ *     court are one row, and the club has never known which.
+ *   - The row is keyed by whatever name and number the booker gave, so
+ *     `people` counts distinct numbers and is short by however many walk-ins
+ *     left the number blank. That count is reported separately rather than
+ *     folded in, because a blank number is a real state here.
+ *
+ * Cancellations fall out. Lapsed holds do not, for the reason `hoursByDate`
+ * keeps them: a held slot on a past day is still a court-hour nobody else
+ * could buy.
+ */
+export type BookingTotals = {
+  from: string;
+  to: string;
+  /** Live bookings in the window. */
+  bookings: number;
+  /** Distinct phone numbers among them. */
+  people: number;
+  /** Bookings with no number on file, so outside `people`. */
+  anonymous: number;
+  /** Bookings that also booked the coach. */
+  coached: number;
+  courtHours: number;
+  /** Shillings, split by whether the money has actually come in. */
+  paid: number;
+  unpaid: number;
+};
+
+export async function bookingTotals(from: string, to: string): Promise<BookingTotals> {
+  const [row] = await db
+    .select({
+      bookings: sql<number>`count(*)::int`,
+      people: sql<number>`count(distinct ${bookingsTable.phone}) filter (
+        where ${bookingsTable.phone} <> '')::int`,
+      anonymous: sql<number>`count(*) filter (where ${bookingsTable.phone} = '')::int`,
+      coached: sql<number>`count(*) filter (where ${bookingsTable.coach})::int`,
+      minutes: sql<number>`coalesce(sum(${bookingsTable.endMin} - ${bookingsTable.startMin}), 0)::int`,
+      paid: sql<number>`coalesce(sum(${bookingsTable.amount}) filter (
+        where ${bookingsTable.paid}), 0)::int`,
+      unpaid: sql<number>`coalesce(sum(${bookingsTable.amount}) filter (
+        where not ${bookingsTable.paid}), 0)::int`,
+    })
+    .from(bookingsTable)
+    .where(
+      and(
+        between(bookingsTable.date, from, to),
+        inArray(bookingsTable.status, ['held', 'confirmed']),
+      ),
+    );
+
+  return {
+    from,
+    to,
+    bookings: row?.bookings ?? 0,
+    people: row?.people ?? 0,
+    anonymous: row?.anonymous ?? 0,
+    coached: row?.coached ?? 0,
+    courtHours: (row?.minutes ?? 0) / 60,
+    paid: row?.paid ?? 0,
+    unpaid: row?.unpaid ?? 0,
+  };
 }

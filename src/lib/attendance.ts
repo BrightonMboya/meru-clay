@@ -11,7 +11,7 @@
  * sell for Saturday.
  */
 
-import { and, desc, eq, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, lte, sql } from 'drizzle-orm';
 import { db } from './db/client';
 import { attendance, players } from './db/schema';
 
@@ -74,4 +74,67 @@ export async function recentFor(playerId: number, limit = 5): Promise<string[]> 
     .limit(limit);
 
   return rows.map((row) => row.date);
+}
+
+/**
+ * The register over a window, counted.
+ *
+ * `days` is player-days, not people: somebody who came on Tuesday and
+ * Saturday is two days and one player. Both figures are wanted and they are
+ * different questions, so both are returned rather than one being chosen
+ * here and misread later.
+ *
+ * Two grouped queries rather than one. Per-player needs the join to
+ * `players` for a name; per-date does not, and making one query do both
+ * would mean grouping by a pair and re-aggregating in JS.
+ */
+export type AttendanceTotals = {
+  from: string;
+  to: string;
+  /** Rows in the window. One player on two days counts twice. */
+  days: number;
+  /** Distinct players who were marked present at least once. */
+  players: number;
+  /** Most days first. */
+  byPlayer: Array<{ playerId: number; name: string; days: number; lastOn: string }>;
+  /** Player-days per date, ascending. A date nobody came is absent, not zero. */
+  byDate: Array<{ date: string; players: number }>;
+};
+
+export async function attendedBetween(from: string, to: string): Promise<AttendanceTotals> {
+  const window = and(gte(attendance.date, from), lte(attendance.date, to));
+
+  const [perPlayer, perDate] = await Promise.all([
+    db
+      .select({
+        playerId: attendance.playerId,
+        name: players.name,
+        days: sql<number>`count(*)::int`,
+        lastOn: sql<string>`max(${attendance.date})::text`,
+      })
+      .from(attendance)
+      .innerJoin(players, eq(players.id, attendance.playerId))
+      .where(window)
+      .groupBy(attendance.playerId, players.name)
+      .orderBy(desc(sql`count(*)`), asc(players.name)),
+
+    db
+      .select({
+        date: sql<string>`${attendance.date}::text`,
+        players: sql<number>`count(*)::int`,
+      })
+      .from(attendance)
+      .where(window)
+      .groupBy(attendance.date)
+      .orderBy(asc(attendance.date)),
+  ]);
+
+  return {
+    from,
+    to,
+    days: perPlayer.reduce((n, r) => n + r.days, 0),
+    players: perPlayer.length,
+    byPlayer: perPlayer,
+    byDate: perDate,
+  };
 }

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "meru-clay": {
+      "type": "http",
+      "url": "http://localhost:3000/api/mcp",
+      "headers": {
+        "authorization": "Bearer ${MCP_TOKEN}"
+      }
+    }
+  }
+}

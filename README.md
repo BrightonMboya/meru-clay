@@ -63,6 +63,9 @@ All static, all `noindex`, all inside the shell in `app/admin/layout.tsx`.
 | `/admin/whatsapp/number`        | Number health and everyone opted out      |
 | `/admin/takings`                | ⚠️ not designed yet — a placeholder       |
 
+And one route that is not a screen: `POST /api/mcp` — the club office as an
+MCP server. See [The club office over MCP](#the-club-office-over-mcp).
+
 ## Structure
 
 ```
@@ -363,6 +366,75 @@ stealing each other's callbacks. Then pay a real 500 TZS from a real handset
 and watch it land on Takings. What this proves that the stub cannot: that
 metadata really does survive the round trip, that their signature really is
 computed the way the docs say, and that the money is actually collectable.
+
+## The club office over MCP
+
+`POST /api/mcp` is the whole club office as an [MCP](https://modelcontextprotocol.io)
+server: 33 tools over the same `src/lib` modules the screens use, so a model
+booking a court takes the same advisory lock and the same overlap test that
+`/book` does. Nothing in `src/mcp/` talks to the database directly and nothing
+in it knows a column name.
+
+```
+src/mcp/
+  server.ts           # builds the server; `instructions` is the club's briefing
+  serve.ts            # one JSON-RPC message in, one out — see below
+  auth.ts             # bearer token, or an operator session
+  reply.ts            # ok() / fail(), and the HH:MM ⇄ minutes boundary
+  tools/
+    context.ts        # club_context — today at the club, prices, vocabulary
+    leads.ts          # the pipeline, and WhatsApp's 24-hour rule
+    courts.ts         # availability, the diary, bookings, closures, usage
+    roster.ts         # members, memberships, attendance
+    classes.ts        # the timetable and the register
+    money.ts          # takings, the ledger, payment links
+src/app/api/mcp/route.ts
+```
+
+### Connecting a client
+
+```bash
+# .env — with this unset only a signed-in operator can use the tools
+MCP_TOKEN=$(openssl rand -base64 32)
+
+export MCP_TOKEN=…
+claude mcp add --transport http meru-clay http://localhost:3000/api/mcp \
+  --header "authorization: Bearer $MCP_TOKEN"
+```
+
+`.mcp.json` in the repo root already declares it for Claude Code, and reads
+`MCP_TOKEN` from the environment — so exporting it is enough. The endpoint sits
+**outside** `src/proxy.ts`'s matcher on purpose: the proxy only knows session
+cookies, and the point of the token is to let a client that has no session in.
+`authorise` in `src/mcp/auth.ts` is the lock, and it runs first.
+
+### Three tools reach the outside world
+
+`send_lead_message` puts a WhatsApp message on a real handset,
+`send_payment_link` opens a payment and messages the link, and
+`take_membership_payment` records money as received. They are annotated as
+such, `send_payment_link` takes `send: false` for the URL alone, and the
+server's `instructions` say all of this before a client calls anything.
+
+### Why the transport is hand-rolled
+
+The SDK's Streamable HTTP transport is built on Node's `IncomingMessage` and
+`ServerResponse`; a Route Handler gets a Web `Request` and must return a Web
+`Response`. Rather than take an adapter dependency, `src/mcp/serve.ts` is the
+other half of the contract — around sixty lines, stateless, a server built and
+thrown away per request. The club's state is in Postgres, so there is nothing
+for a session to hold, and the endpoint works unchanged on a serverless
+deployment. The cost is that nothing can be pushed: the `GET` that would carry
+server-initiated messages is refused with a 405 rather than left open.
+
+### "How many people came?" has three answers
+
+`attendance_report` returns all three and refuses to add them up — the desk's
+register (named and exact, as complete as the desk was), court bookings (slots
+sold; one row whether one person turned up or four, and keyed by phone number
+so members with none on file are invisible to it) and class places. They
+overlap. Summing them produces a confident wrong number, which is the failure
+mode worth designing against.
 
 ## Not built yet
 

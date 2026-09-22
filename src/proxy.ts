@@ -1,8 +1,15 @@
 /**
  * The door.
  *
- * Everything staff-only lives under two prefixes — /admin and /api/desk — so
- * that turning strangers away could be done in one place. This is that place.
+ * The staff-only screens and their fetches live under two prefixes — /admin
+ * and /api/desk — so that turning strangers away could be done in one place.
+ * This is that place.
+ *
+ * /api/mcp is staff-only too and is deliberately NOT in the matcher below.
+ * The only credential this file understands is a session cookie, and the
+ * point of MCP_TOKEN is to admit a client that has no session — a terminal,
+ * a laptop, a script. That endpoint carries its own lock; see `authorise` in
+ * src/mcp/auth.ts, called before anything else in the handler.
  *
  * In Next 16 this file is `proxy.ts`; it was `middleware.ts` until the rename
  * (see node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions

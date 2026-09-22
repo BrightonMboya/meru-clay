@@ -181,3 +181,27 @@ export function fmtDeskDay(isoDate: string): string {
   ];
   return `${dow} ${d.getUTCDate()} ${mon}`;
 }
+
+/**
+ * The two instants a club day runs between.
+ *
+ * Almost nothing here needs this: a slot is a date string and a number of
+ * minutes, and comparing two slots is comparing two integers — see the
+ * header. Money is the exception. `paid_at` is a real `timestamptz`, so
+ * "what came in on Tuesday" means naming the moment Tuesday began at the
+ * club and the moment it ended, and those are not midnight UTC. One fixed
+ * offset makes the conversion exact and this the only place it happens.
+ *
+ * `end` is the last millisecond of the day rather than the first of the
+ * next, so a query can use it with an inclusive comparison and a payment
+ * taken at 23:59 is not lost between the two.
+ */
+export function dayBounds(isoDate: string): { start: Date; end: Date } {
+  const start = new Date(Date.parse(`${isoDate}T00:00:00.000Z`) - TZ_OFFSET_MIN * 60_000);
+  return { start, end: new Date(start.getTime() + 86_400_000 - 1) };
+}
+
+/** The same, across a range of club days — both ends inclusive. */
+export function windowBounds(from: string, to: string): { start: Date; end: Date } {
+  return { start: dayBounds(from).start, end: dayBounds(to).end };
+}
