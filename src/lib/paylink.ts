@@ -79,6 +79,7 @@ export function payUrl(paymentId: string): string {
  */
 async function openPaymentFor(
   target: { playerId: number } | { leadId: number } | { enrolmentId: number },
+  purpose: PaymentPurpose,
   want: { amount: number; tier?: MembershipTier },
 ): Promise<Payment | null> {
   const whose =
@@ -99,6 +100,9 @@ async function openPaymentFor(
     .where(
       and(
         whose,
+        // A lead can hold a trial payment and a joining one at once; they
+        // are different purchases and neither may close the other.
+        eq(paymentsTable.purpose, purpose),
         inArray(paymentsTable.status, ['pending', 'processing', 'failed']),
         or(isNull(paymentsTable.expiresAt), gt(paymentsTable.expiresAt, new Date())),
       ),
@@ -163,7 +167,7 @@ async function link(
   throttleMinutes: number,
 ): Promise<LinkResult> {
   const payment =
-    (await openPaymentFor(target, { amount: purchase.amount, tier: purchase.tier })) ??
+    (await openPaymentFor(target, purpose, { amount: purchase.amount, tier: purchase.tier })) ??
     (await createPayment({
       purpose,
       playerId: 'playerId' in target ? target.playerId : undefined,

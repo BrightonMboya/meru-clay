@@ -36,7 +36,8 @@
 import 'server-only';
 
 import { fulfil } from './fulfil';
-import { notifyEnv, notifyPaymentProblem } from './notify';
+import { getLead } from './leads';
+import { notifyEnv, notifyPaymentProblem, notifyTrial } from './notify';
 import {
   attachProviderRef,
   getPayment,
@@ -49,6 +50,7 @@ import {
 } from './payments';
 import { CURRENCY } from './checkout';
 import { isCompleted, isDead, isRefunded, verifyPayment } from './snippe';
+import { fmtLongDay } from './time';
 
 export type SettleResult =
   /** Money in and the club delivered. */
@@ -313,6 +315,21 @@ export async function settle(
   const done = await fulfil(paymentId);
 
   if (done.ok) {
+    // A paid trial is the one fulfilment with nobody at the desk to see it
+    // happen — it comes off an ad at any hour — so the club is told. Only on
+    // the call that actually fulfilled it, so a redelivery stays quiet.
+    if (done.outcome === 'fulfilled' && done.payment.purpose === 'trial') {
+      const p = done.payment;
+      const lead = p.leadId !== null ? await getLead(p.leadId).catch(() => null) : null;
+      await notifyTrial(notifyEnv(), {
+        id: p.id,
+        name: p.name,
+        phone: p.phone,
+        amount: p.amount,
+        day: p.sessionDate ? fmtLongDay(p.sessionDate) : '—',
+        campaign: lead?.campaign ?? null,
+      });
+    }
     return { outcome: done.outcome === 'already' ? 'already' : 'fulfilled', payment: done.payment };
   }
 

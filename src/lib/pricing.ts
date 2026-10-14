@@ -30,6 +30,16 @@ export function totalFor(duration: Duration, withCoach: boolean): number {
   return COURT_HIRE[duration] + (withCoach ? COACHING[duration] : 0);
 }
 
+/**
+ * The paid trial session sold off the ads — /trial. One price, paid up front
+ * by mobile money, which is what makes a booking from a stranger worth the
+ * coach keeping a slot for.
+ */
+export const TRIAL_FEE = 15_000;
+
+/** How far ahead somebody can pick their trial day, starting tomorrow. */
+export const TRIAL_WINDOW_DAYS = 21;
+
 /** 30000 → "30,000". Plain grouping; the currency is stated once in the UI. */
 export function fmtTsh(amount: number): string {
   return amount.toLocaleString('en-US');

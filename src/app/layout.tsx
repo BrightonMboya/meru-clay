@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { Archivo, Fraunces, Inter } from 'next/font/google';
+import MetaPixel from '@/components/MetaPixel';
 import QueryProvider from '@/components/QueryProvider';
 import './globals.css';
 
@@ -175,6 +176,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             and the court desk. Mounted at the root so both subtrees share one
             browser cache. */}
         <QueryProvider>{children}</QueryProvider>
+        <MetaPixel />
         <script
           type="application/ld+json"
           // Static object, no user input — safe to inline.

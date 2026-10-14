@@ -37,7 +37,7 @@
  * transaction-mode pooler. See the header of src/lib/bookings.ts.
  */
 
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 
 import { confirmBooking, markPaid, overlappedByOthers } from './bookings';
 import { db } from './db/client';
@@ -168,6 +168,8 @@ function apply(
         : applyJoin(tx, row.leadId!, row.tier ?? 'monthly', row.name, row.phone, row.email, today);
     case 'class':
       return applyClass(tx, row.enrolmentId!);
+    case 'trial':
+      return applyTrial(tx, row.leadId!);
   }
 }
 
@@ -336,6 +338,27 @@ async function applyClass(
 
   const done = await markEnrolmentPaid(enrolmentId, tx);
   if (!done) return { ok: false, reason: 'The class place was cancelled before payment arrived.' };
+
+  return { ok: true };
+}
+
+/**
+ * A trial session, paid for off the ads.
+ *
+ * There is nothing to reserve — the day is on the payment, and the coach
+ * fits them in — so fulfilling it is moving the lead along the board to
+ * TRIAL BOOKED, which is where the desk looks for who is coming. Only
+ * forwards: a lead already further on (came to a trial before, joined) is
+ * left where they are rather than walked back.
+ *
+ * A lead deleted since paying is not a reason to refuse. The money and the
+ * day are both on the payment row, which is what the desk works from.
+ */
+async function applyTrial(tx: Tx, leadId: number): Promise<Applied> {
+  await tx
+    .update(leadsTable)
+    .set({ stage: 'trial_booked', updatedAt: new Date() })
+    .where(and(eq(leadsTable.id, leadId), inArray(leadsTable.stage, ['new', 'contacted'])));
 
   return { ok: true };
 }

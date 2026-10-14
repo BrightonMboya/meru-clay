@@ -27,7 +27,7 @@ export type PaymentView = {
   status: PaymentStatus;
   amount: number;
   currency: string;
-  purpose: 'booking' | 'membership' | 'class';
+  purpose: 'booking' | 'membership' | 'class' | 'trial';
   title: string;
   detail: string;
   name: string;
@@ -55,7 +55,13 @@ export const myPayment = {
       // Four seconds while a mobile-money push is out; stop once it lands.
       // `refetchInterval` takes a function so the decision is made against
       // the freshest answer rather than the one this was set up with.
-      refetchInterval: (query) => (query.state.data?.pending ? 4_000 : false),
+      //
+      // `needsClub` keeps it polling too, more slowly: the webhook records the
+      // money and then fulfils in a second step, and a poll that lands between
+      // the two reads as "paid, something is wrong". Stopping there left a
+      // payer looking at a false alarm until they reloaded.
+      refetchInterval: (query) =>
+        query.state.data?.pending ? 4_000 : query.state.data?.needsClub ? 10_000 : false,
     }),
 };
 

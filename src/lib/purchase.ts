@@ -189,6 +189,10 @@ export async function describePayment(p: Payment): Promise<{ title: string; deta
     };
   }
 
+  if (p.purpose === 'trial' && p.sessionDate) {
+    return { title: 'Trial session', detail: fmtLongDay(p.sessionDate) };
+  }
+
   if (p.purpose === 'class' && p.enrolmentId) {
     const e = await getEnrolment(p.enrolmentId);
     if (e) return { title: e.className, detail: `${fmtLongDay(e.date)} · ${courtName(e.court)}` };

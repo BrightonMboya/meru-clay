@@ -2,7 +2,8 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { trackOnce } from '@/lib/pixel';
 import { myPayment, startPayment, type PaymentView } from '@/lib/queries/payments';
 
 /**
@@ -38,6 +39,7 @@ import { myPayment, startPayment, type PaymentView } from '@/lib/queries/payment
 export default function CheckoutPanel({ id }: { id: string }) {
   const query = useQuery(myPayment.options(id));
   const payment = query.data;
+  usePurchaseEvent(payment);
 
   if (query.isPending) {
     return <p className="py-6 text-[16px] text-[#5C6159]">Looking up your payment…</p>;
@@ -72,7 +74,11 @@ export default function CheckoutPanel({ id }: { id: string }) {
         <p className="border-t border-clay/25 pt-6 text-[15px] leading-[25px] text-[#3C3F38]">
           {payment.purpose === 'booking'
             ? 'Your court is confirmed. Just turn up.'
-            : 'Your membership is up to date. Thank you.'}
+            : payment.purpose === 'trial'
+              ? 'Your trial session is booked. We will WhatsApp you today with your time and court.'
+              : payment.purpose === 'class'
+                ? 'Your class place is paid. See you on court.'
+                : 'Your membership is up to date. Thank you.'}
         </p>
         <div className="flex flex-wrap items-center gap-3">
           {payment.bookingId && (
@@ -256,6 +262,43 @@ function PayByPhone({ id, payment }: { id: string; payment: PaymentView }) {
       )}
     </form>
   );
+}
+
+/**
+ * Tell the Meta Pixel about a sale, once.
+ *
+ * Only for a payment this browser watched while it was still owed — the
+ * payer who tapped Pay here and is now looking at PAID. A link reopened
+ * after the desk took cash, or forwarded to somebody else, also says PAID,
+ * and neither is a sale an ad made. The "seen it owed" mark is kept in
+ * storage so somebody who closes the tab while finding their PIN and comes
+ * back still counts. `trackOnce` stops a reload counting twice; the payment
+ * id is the eventID, which is what a later server-side event will dedupe on.
+ */
+function usePurchaseEvent(payment: PaymentView | undefined) {
+  useEffect(() => {
+    if (!payment) return;
+    const seen = `px:owed:${payment.id}`;
+    if (!payment.done) {
+      if (payment.pending) {
+        try {
+          localStorage.setItem(seen, '1');
+        } catch {}
+      }
+      return;
+    }
+    let owed = false;
+    try {
+      owed = localStorage.getItem(seen) === '1';
+    } catch {}
+    if (!owed) return;
+    trackOnce(
+      payment.id,
+      'Purchase',
+      { value: payment.amount, currency: payment.currency, content_name: payment.title, content_category: payment.purpose },
+      payment.id,
+    );
+  }, [payment]);
 }
 
 const whatsapp = 'https://wa.me/255782628288';

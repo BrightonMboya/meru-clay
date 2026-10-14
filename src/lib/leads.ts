@@ -90,6 +90,19 @@ export async function getLead(id: number): Promise<LeadRow | null> {
   return row ?? null;
 }
 
+/**
+ * The live lead on a number, if there is one. `uniq_lead_phone` guarantees at
+ * most one; lost leads are not live and are not returned.
+ */
+export async function leadByPhone(phone: string): Promise<LeadRow | null> {
+  const [row] = await db
+    .select(shape)
+    .from(leads)
+    .where(and(eq(leads.phone, phone), sql`${leads.stage} <> 'lost'`))
+    .limit(1);
+  return row ?? null;
+}
+
 /** The conversation, oldest first — which is the order it is read in. */
 export function listMessages(leadId: number): Promise<LeadMessageRow[]> {
   return db

@@ -99,6 +99,13 @@
       "when": 1789995981434,
       "tag": "0013_busy_butterfly",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791916367398,
+      "tag": "0014_known_ghost_rider",
+      "breakpoints": true
     }
   ]
 }

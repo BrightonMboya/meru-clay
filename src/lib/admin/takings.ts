@@ -138,6 +138,8 @@ function what(p: Payment): string {
       return p.playerId !== null ? 'Membership renewal' : 'Joining the club';
     case 'class':
       return 'Class place';
+    case 'trial':
+      return 'Trial session';
   }
 }
 

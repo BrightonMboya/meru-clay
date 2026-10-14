@@ -494,6 +494,12 @@ export const payments = pgTable(
     enrolmentId: integer('enrolment_id').references(() => classEnrolments.id),
     /** Which membership was bought. Decides the term added on fulfilment. */
     tier: text('tier').$type<MembershipTier>(),
+    /**
+     * A trial: the day they asked to come, YYYY-MM-DD local. On the payment
+     * rather than the lead because it is part of what was bought — a lead
+     * can pay for a second trial and the first one's day must not move.
+     */
+    sessionDate: date('session_date', { mode: 'string' }),
 
     /**
      * Who paid, as they were when they paid. Copied rather than joined: the
@@ -587,6 +593,9 @@ export const payments = pgTable(
       ) or (
         purpose = 'class' and enrolment_id is not null
           and booking_id is null and player_id is null and lead_id is null
+      ) or (
+        purpose = 'trial' and lead_id is not null and session_date is not null
+          and booking_id is null and player_id is null and enrolment_id is null
       )`,
     ),
   ],

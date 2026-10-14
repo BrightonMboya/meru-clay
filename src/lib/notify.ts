@@ -331,6 +331,53 @@ export async function notifyEnquiry(env: NotifyEnv, e: Enquiry): Promise<void> {
 }
 
 /**
+ * A paid trial, off the ads. Somebody has paid and is coming on the day they
+ * picked; the club's half is to message them a time. Same rules as
+ * `notifyEnquiry`: never throws, silent while BOOKING_TO_EMAIL is unset.
+ */
+export async function notifyTrial(
+  env: NotifyEnv,
+  t: { id: string; name: string; phone: string; amount: number; day: string; campaign: string | null },
+): Promise<void> {
+  if (!env.BOOKING_TO_EMAIL) return;
+
+  const lines: Array<[string, string]> = [
+    ['Name', t.name],
+    ['Phone', t.phone],
+    ['Coming', t.day],
+    ['Paid', `TSh ${t.amount.toLocaleString('en-US')}`],
+    ['Ad', t.campaign ?? '—'],
+    ['Reference', t.id.slice(0, 8)],
+  ];
+
+  try {
+    await deliver(env, {
+      to: env.BOOKING_TO_EMAIL,
+      subject: `Paid trial — ${t.name}, ${t.day}`,
+      text: [
+        'Somebody paid for a trial session.',
+        '',
+        ...lines.map(([k, v]) => `${k}: ${v}`),
+        '',
+        'They are on the leads board, in Trial booked. Message them a time.',
+      ].join('\n'),
+      html: [
+        '<p><strong>Somebody paid for a trial session.</strong></p>',
+        '<table cellpadding="6" cellspacing="0" style="border-collapse:collapse;font:15px system-ui,sans-serif">',
+        ...lines.map(
+          ([k, v]) =>
+            `<tr><td style="color:#5F6B62;padding-right:18px">${k}</td><td><strong>${escapeHtml(v)}</strong></td></tr>`,
+        ),
+        '</table>',
+        '<p>They are on the leads board, in Trial booked. Message them a time.</p>',
+      ].join(''),
+    });
+  } catch (err) {
+    console.error('notify trial failed:', err);
+  }
+}
+
+/**
  * Money arrived and the club cannot deliver.
  *
  * Almost always one thing: a court whose hold lapsed and was resold while

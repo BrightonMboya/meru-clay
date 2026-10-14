@@ -54,6 +54,8 @@ export type Payment = {
   leadId: number | null;
   enrolmentId: number | null;
   tier: MembershipTier | null;
+  /** A trial's day, YYYY-MM-DD. Null for everything else. */
+  sessionDate: string | null;
   name: string;
   phone: string;
   email: string;
@@ -85,6 +87,7 @@ function toPayment(r: PaymentRecord): Payment {
     leadId: r.leadId,
     enrolmentId: r.enrolmentId,
     tier: r.tier,
+    sessionDate: r.sessionDate,
     name: r.name,
     phone: r.phone,
     email: r.email,
@@ -114,6 +117,7 @@ export type NewPaymentInput = {
   leadId?: number;
   enrolmentId?: number;
   tier?: MembershipTier;
+  sessionDate?: string;
   method?: PaymentMethod;
   /** When the link stops working. See `LINK_HOURS`. */
   expiresAt: Date;
@@ -143,6 +147,7 @@ export async function createPayment(input: NewPaymentInput): Promise<Payment> {
       leadId: input.leadId ?? null,
       enrolmentId: input.enrolmentId ?? null,
       tier: input.tier ?? null,
+      sessionDate: input.sessionDate ?? null,
       expiresAt: input.expiresAt,
     })
     .returning();
@@ -442,7 +447,48 @@ export async function recordEvent(e: {
   }
 }
 
+/**
+ * Move an unpaid trial to another day.
+ *
+ * For somebody who fills the /trial form in twice — changed their mind about
+ * Saturday — so the second submission reuses the first payment rather than
+ * leaving a dead one on Takings. Only an unpaid one moves: a processing
+ * payment has a prompt out for the day it was quoted, and a paid one is a
+ * promise the club has made.
+ */
+export async function setSessionDate(id: string, sessionDate: string): Promise<Payment | null> {
+  const [row] = await db
+    .update(paymentsTable)
+    .set({ sessionDate })
+    .where(and(eq(paymentsTable.id, id), inArray(paymentsTable.status, ['pending', 'failed'])))
+    .returning();
+
+  return row ? toPayment(row) : null;
+}
+
 /* ----------------------------------------------------------------- read */
+
+/**
+ * A lead's trial payment that is still worth paying into, if any — the
+ * newest that is pending, failed or in flight, and has not expired.
+ */
+export async function openTrialFor(leadId: number): Promise<Payment | null> {
+  const [row] = await db
+    .select()
+    .from(paymentsTable)
+    .where(
+      and(
+        eq(paymentsTable.leadId, leadId),
+        eq(paymentsTable.purpose, 'trial'),
+        inArray(paymentsTable.status, ['pending', 'failed', 'processing']),
+        or(isNull(paymentsTable.expiresAt), gte(paymentsTable.expiresAt, new Date())),
+      ),
+    )
+    .orderBy(desc(paymentsTable.createdAt))
+    .limit(1);
+
+  return row ? toPayment(row) : null;
+}
 
 export async function getPayment(id: string): Promise<Payment | null> {
   const [row] = await db.select().from(paymentsTable).where(eq(paymentsTable.id, id)).limit(1);
