@@ -87,3 +87,11 @@ export function startPayment(id: string, phone: string) {
     },
   );
 }
+
+/**
+ * Push the same prompt again, for a payer whose phone never showed it.
+ * Same transaction, so it cannot charge twice; see the resend route.
+ */
+export function resendPrompt(id: string) {
+  return getJson<{ ok: true; settled: boolean }>(`/api/payments/${id}/resend`, { method: 'POST' });
+}

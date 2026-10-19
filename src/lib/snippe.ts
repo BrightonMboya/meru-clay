@@ -241,6 +241,43 @@ export async function chargeMobileMoney(input: ChargeInput): Promise<ChargeResul
   };
 }
 
+/**
+ * Send the USSD prompt for an existing transaction again.
+ *
+ * For the payer whose prompt never arrived, or arrived and timed out on the
+ * handset while Snippe still holds the transaction as 'pending' — which it
+ * does for hours. It is the SAME transaction, not a new charge, so pressing
+ * it twice cannot take the money twice; that is why this exists rather than
+ * starting a fresh attempt, which would leave the first one approvable.
+ */
+export async function resendPush(
+  reference: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const key = process.env.SNIPPE_API_KEY;
+  if (!key) return { ok: false, error: 'Mobile money is not set up yet.' };
+
+  let res: Response;
+  try {
+    res = await fetch(`${apiBase()}${PAYMENTS}/${encodeURIComponent(reference)}/push`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${key}` },
+      cache: 'no-store',
+    });
+  } catch (err) {
+    console.error(`snippe: could not reach push for ${reference}:`, err);
+    return { ok: false, error: 'We could not reach mobile money. Try again in a minute.' };
+  }
+
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => null)) as SnippeEnvelope | null;
+    const message = explain(res.status, payload);
+    console.error(`snippe: push refused (${res.status}) for ${reference}: ${message}`);
+    return { ok: false, error: message };
+  }
+
+  return { ok: true };
+}
+
 export type VerifyResult =
   /** Snippe answered about this transaction. `status` is theirs, verbatim. */
   | { ok: true; status: string; amount: number | null; currency: string | null }

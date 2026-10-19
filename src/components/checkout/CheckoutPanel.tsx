@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { trackOnce } from '@/lib/pixel';
-import { myPayment, startPayment, type PaymentView } from '@/lib/queries/payments';
+import { myPayment, resendPrompt, startPayment, type PaymentView } from '@/lib/queries/payments';
 
 /**
  * One payment, as the payer sees it.
@@ -203,17 +203,7 @@ function PayByPhone({ id, payment }: { id: string; payment: PaymentView }) {
   }
 
   if (payment.status === 'processing') {
-    return (
-      <div className="flex flex-col gap-2 border-t border-clay/25 pt-6">
-        <p className="text-[15px] font-semibold leading-[25px] text-[#13271D]">
-          Check your phone.
-        </p>
-        <p className="text-[15px] leading-[25px] text-[#3C3F38]">
-          A payment request is on its way to the number you gave. Enter your mobile money PIN to
-          approve it — this page will update by itself once it goes through.
-        </p>
-      </div>
-    );
+    return <AwaitingPin id={id} />;
   }
 
   const declined = payment.status === 'failed';
@@ -261,6 +251,67 @@ function PayByPhone({ id, payment }: { id: string; payment: PaymentView }) {
         </p>
       )}
     </form>
+  );
+}
+
+/** How long a prompt is given to arrive before we offer to send it again. */
+const RESEND_AFTER_MS = 30_000;
+
+/**
+ * "Check your phone", with a way out for when nothing arrives.
+ *
+ * An unanswered prompt dies on the handset within a minute or so, while
+ * Snippe still holds the transaction open — so without the button a payer
+ * whose prompt never showed (or who came back to the link later) is stuck
+ * here for hours. It re-sends the same transaction, never a new charge.
+ * Held back for a while, because the first prompt can take a few seconds.
+ */
+function AwaitingPin({ id }: { id: string }) {
+  const client = useQueryClient();
+  const [canResend, setCanResend] = useState(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => setCanResend(true), RESEND_AFTER_MS);
+    return () => clearTimeout(t);
+  }, []);
+
+  const resend = useMutation({
+    mutationFn: () => resendPrompt(id),
+    onSuccess: () => {
+      setCanResend(false);
+      setTimeout(() => setCanResend(true), RESEND_AFTER_MS);
+      client.invalidateQueries({ queryKey: myPayment.key(id) });
+    },
+  });
+
+  return (
+    <div className="flex flex-col gap-3 border-t border-clay/25 pt-6">
+      <p className="text-[15px] font-semibold leading-[25px] text-[#13271D]">Check your phone.</p>
+      <p className="text-[15px] leading-[25px] text-[#3C3F38]">
+        {resend.isSuccess
+          ? 'We have sent the payment request again. '
+          : 'A payment request is on its way to the number you gave. '}
+        Enter your mobile money PIN to approve it — this page will update by itself once it goes
+        through.
+      </p>
+
+      {canResend && (
+        <button
+          type="button"
+          onClick={() => resend.mutate()}
+          disabled={resend.isPending}
+          className={`${secondary} disabled:opacity-60`}
+        >
+          {resend.isPending ? 'Sending…' : 'Didn’t get it? Send it again'}
+        </button>
+      )}
+
+      {resend.isError && (
+        <p className="text-[15px] leading-[25px] text-[#8A3324]">
+          {(resend.error as Error).message}
+        </p>
+      )}
+    </div>
   );
 }
 

@@ -85,6 +85,15 @@ const server = createServer(async (req, res) => {
     return send(res, 200, { status: 'success', code: 200, data: view(tx) });
   }
 
+  const push = /^\/v1\/payments\/([^/]+)\/push$/.exec(path);
+  if (req.method === 'POST' && push) {
+    if (!authorised(req)) return send(res, 401, unauthorised());
+    const tx = txs.get(decodeURIComponent(push[1]));
+    if (!tx) return send(res, 404, { status: 'error', code: 404, error_code: 'not_found', message: 'payment not found' });
+    log(`  ↳ USSD prompt re-sent for ${tx.reference}`);
+    return send(res, 200, { status: 'success', code: 200, data: view(tx) });
+  }
+
   /* ------------------------------------------- the control surface */
 
   if (req.method === 'GET' && path === '/_stub') {
