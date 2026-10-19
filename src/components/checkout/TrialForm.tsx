@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { trackOnce } from '@/lib/pixel';
 import { getJson, statusOf } from '@/lib/queries/http';
-import { startPayment } from '@/lib/queries/payments';
+import { resendPrompt, startPayment } from '@/lib/queries/payments';
 import { fmtDayLabel, fmtLongDay } from '@/lib/time';
 
 /** The ad's own tags, carried onto the lead so the board can say which ad paid. */
@@ -53,7 +53,14 @@ export default function TrialForm({ days, fee }: { days: string[]; fee: number }
         { content_name: 'Trial session', value: fee, currency: 'TZS' },
         `lead-${opened.id}`,
       );
-      if (opened.status === 'processing') return opened.id;
+      if (opened.status === 'successful') return opened.id;
+      if (opened.status === 'processing') {
+        // Snippe says the last prompt is still live, but they filled the form
+        // in again because it is not on their phone: push the same one again.
+        // Best effort — /pay has the button if this does not land.
+        await resendPrompt(opened.id).catch(() => {});
+        return opened.id;
+      }
 
       try {
         await startPayment(opened.id, input.phone);

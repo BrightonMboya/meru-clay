@@ -70,6 +70,12 @@ export type Payment = {
   fulfilledAt: number | null;
   failureReason: string | null;
   createdAt: number;
+  /**
+   * Last write to the row. While 'processing' that is, near enough, when the
+   * current attempt went out — `attachProviderRef` is the last thing to touch
+   * it — which is what `refreshAttempt` measures Snippe's expiry against.
+   */
+  updatedAt: number;
 };
 
 const ms = (d: Date | null) => (d ? d.getTime() : null);
@@ -101,6 +107,7 @@ function toPayment(r: PaymentRecord): Payment {
     fulfilledAt: ms(r.fulfilledAt),
     failureReason: r.failureReason,
     createdAt: r.createdAt.getTime(),
+    updatedAt: r.updatedAt.getTime(),
   };
 }
 

@@ -5,6 +5,7 @@ import type { LeadSource } from '@/lib/pipeline';
 import { TRIAL_FEE, TRIAL_WINDOW_DAYS } from '@/lib/pricing';
 import { emailFor } from '@/lib/purchase';
 import { publish } from '@/lib/realtime';
+import { refreshAttempt } from '@/lib/settle';
 import { normalisePhone } from '@/lib/roster';
 import { addDays, isValidDate, nowLocal } from '@/lib/time';
 
@@ -26,8 +27,9 @@ export const dynamic = 'force-dynamic';
  * ── Twice ────────────────────────────────────────────────────────────────
  * One live lead per number (`uniq_lead_phone`), and one open trial per lead.
  * Filling the form in again moves the open trial to the new day rather than
- * opening a second; if a prompt is already out, the page is sent to that
- * payment to wait for it instead of firing another.
+ * opening a second; if a prompt is genuinely still out (`refreshAttempt`
+ * has asked Snippe), the page is sent to that payment and re-pushes it
+ * rather than firing a second charge.
  */
 export async function POST(request: Request) {
   let body: Record<string, unknown>;
@@ -57,8 +59,13 @@ export async function POST(request: Request) {
       await publish(null);
     }
 
-    const open = await openTrialFor(lead.id);
-    if (open) {
+    // A 'processing' trial may be an attempt Snippe gave up on days ago;
+    // ask before deciding there is a prompt out.
+    const found = await openTrialFor(lead.id);
+    const open = found ? await refreshAttempt(found) : null;
+    // Asking may reveal it was approved after all; that is their trial, paid.
+    if (open?.status === 'successful') return json({ ok: true, id: open.id, status: open.status });
+    if (open && (open.status === 'pending' || open.status === 'failed' || open.status === 'processing')) {
       const moved =
         open.status === 'processing' || open.sessionDate === input.date
           ? open

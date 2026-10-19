@@ -1,6 +1,6 @@
 import { getPayment, recordEvent } from '@/lib/payments';
-import { settle } from '@/lib/settle';
-import { isCompleted, isDead, isRefunded, resendPush, verifyPayment } from '@/lib/snippe';
+import { refreshAttempt } from '@/lib/settle';
+import { resendPush } from '@/lib/snippe';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,11 +36,10 @@ export async function POST(_request: Request, ctx: RouteContext<'/api/payments/[
   }
   sent.set(id, Date.now());
 
-  const now = await verifyPayment(payment.providerRef);
-  if (now.ok && (isCompleted(now.status) || isDead(now.status) || isRefunded(now.status))) {
-    await settle(id, payment.providerRef, 'verify');
-    return json({ ok: true, settled: true });
-  }
+  // Approved, declined or expired since: settle it rather than push a prompt
+  // for a transaction that is over. The page re-reads and shows the result.
+  const now = await refreshAttempt(payment);
+  if (now.status !== 'processing') return json({ ok: true, settled: true });
 
   const pushed = await resendPush(payment.providerRef);
 
@@ -49,7 +48,6 @@ export async function POST(_request: Request, ctx: RouteContext<'/api/payments/[
     source: 'checkout',
     event: pushed.ok ? 'push.resent' : 'push.refused',
     providerRef: payment.providerRef,
-    status: now.ok ? now.status : null,
     amount: payment.amount,
     raw: pushed,
   });

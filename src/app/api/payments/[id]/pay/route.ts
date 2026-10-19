@@ -10,6 +10,7 @@ import {
   recordEvent,
 } from '@/lib/payments';
 import { describePayment } from '@/lib/purchase';
+import { refreshAttempt } from '@/lib/settle';
 import { chargeMobileMoney, snippeConfigured, toMsisdn } from '@/lib/snippe';
 
 export const dynamic = 'force-dynamic';
@@ -63,8 +64,11 @@ export async function POST(request: Request, ctx: RouteContext<'/api/payments/[i
     return json({ error: 'Enter a Tanzanian mobile number, like 0712 345 678.' }, 400);
   }
 
-  const existing = await getPayment(id);
-  if (!existing) return json({ error: 'No such payment.' }, 404);
+  const found = await getPayment(id);
+  if (!found) return json({ error: 'No such payment.' }, 404);
+  // An old 'processing' attempt that Snippe has since let die must not
+  // block this one; `beginAttempt` only trusts what the row says.
+  if (found.status === 'processing') await refreshAttempt(found);
 
   const started = await beginAttempt(id, txRefFor);
   if (!started.ok) {

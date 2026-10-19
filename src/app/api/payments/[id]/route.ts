@@ -1,8 +1,7 @@
 import { isLive } from '@/lib/checkout';
 import { getPayment, type Payment } from '@/lib/payments';
 import { describePayment } from '@/lib/purchase';
-import { settle } from '@/lib/settle';
-import { isCompleted, isDead, isRefunded, verifyPayment } from '@/lib/snippe';
+import { refreshAttempt } from '@/lib/settle';
 
 export const dynamic = 'force-dynamic';
 
@@ -102,10 +101,11 @@ const ASK_EVERY_MS = 8_000;
  * misses — but the sweep runs every fifteen minutes at best, and a webhook
  * can be late, refused or misconfigured. The payer is staring at this page
  * with their phone in hand, so while they are, their own poll does the
- * asking: a plain verify first, and only an answer that ends the attempt is
- * handed to `settle`, which verifies again and does everything else exactly
- * as the webhook would. A still-pending answer writes nothing, so a minute
- * of polling does not fill the timeline with "still pending".
+ * asking, through `refreshAttempt`: only an answer that ends the attempt is
+ * handed to `settle`, and a still-pending answer writes nothing, so a minute
+ * of polling does not fill the timeline with "still pending". The same call
+ * releases an attempt Snippe has outlived, so an old link reopened next
+ * week offers the Pay button rather than "check your phone".
  *
  * Never throws: the page must still render what the ledger says.
  */
@@ -116,16 +116,7 @@ async function askProvider(payment: Payment): Promise<Payment> {
   if (Date.now() - last < ASK_EVERY_MS) return payment;
   asked.set(payment.id, Date.now());
 
-  try {
-    const now = await verifyPayment(payment.providerRef);
-    if (!now.ok || !(isCompleted(now.status) || isDead(now.status) || isRefunded(now.status))) {
-      return payment;
-    }
-    await settle(payment.id, payment.providerRef, 'verify');
-    asked.delete(payment.id);
-    return (await getPayment(payment.id)) ?? payment;
-  } catch (err) {
-    console.error(`payment ${payment.id}: asking the provider failed:`, err);
-    return payment;
-  }
+  const now = await refreshAttempt(payment);
+  if (now.status !== 'processing') asked.delete(payment.id);
+  return now;
 }

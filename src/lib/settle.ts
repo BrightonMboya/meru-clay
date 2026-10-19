@@ -352,10 +352,69 @@ export async function settle(
 function failureWords(status: string): string {
   switch (status) {
     case 'expired':
+    case 'cancelled':
       return 'The payment request timed out before it was approved.';
     case 'voided':
       return 'The payment was cancelled.';
     default:
       return 'Mobile money declined the payment.';
+  }
+}
+
+/**
+ * Snippe's documented limit on an unanswered payment: "Payments expire after
+ * 4 hours if not completed." Plus a margin, so we never call time first.
+ *
+ * In practice a mobile charge comes back with `expires_at` ten minutes out
+ * and is 'cancelled' then, which `isDead` handles; this is only the backstop
+ * for a transaction Snippe somehow keeps calling 'pending'.
+ */
+const PROVIDER_EXPIRY_MS = 4 * 3_600_000 + 15 * 60_000;
+
+/**
+ * Is the attempt this payment is waiting on still alive? Ask before trusting.
+ *
+ * Called by anything about to act on a 'processing' payment for a payer who
+ * has come back — the trial form, the pay button, "send it again". Without
+ * it, a prompt ignored today leaves the payment 'processing' until a webhook
+ * or the sweep says otherwise, and if neither does, the payer returning next
+ * week is told to check a phone that nothing is coming to.
+ *
+ * Whatever Snippe says that ends the attempt goes through `settle`, exactly
+ * as the webhook would. Past Snippe's own expiry, a transaction it still
+ * calls 'pending' is treated as the dead thing it is — a payment can always
+ * be walked forward again by a late completion, because `markSuccessful`
+ * accepts a failed row. An unreachable Snippe changes nothing: we do not
+ * know, so we do not guess.
+ *
+ * Returns the payment as it now stands. Never throws.
+ */
+export async function refreshAttempt(payment: Payment): Promise<Payment> {
+  if (payment.status !== 'processing' || !payment.providerRef) return payment;
+
+  try {
+    const now = await verifyPayment(payment.providerRef);
+    if (!now.ok) return payment;
+
+    if (isCompleted(now.status) || isDead(now.status) || isRefunded(now.status)) {
+      await settle(payment.id, payment.providerRef, 'verify');
+    } else if (Date.now() - payment.updatedAt > PROVIDER_EXPIRY_MS) {
+      await markFailed(payment.id, failureWords('expired'));
+      await recordEvent({
+        paymentId: payment.id,
+        source: 'verify',
+        event: 'verify.overdue',
+        providerRef: payment.providerRef,
+        status: now.status,
+        raw: `Still '${now.status}' at Snippe past its own expiry; released for a fresh attempt.`,
+      });
+    } else {
+      return payment;
+    }
+
+    return (await getPayment(payment.id)) ?? payment;
+  } catch (err) {
+    console.error(`payment ${payment.id}: refreshing the attempt failed:`, err);
+    return payment;
   }
 }

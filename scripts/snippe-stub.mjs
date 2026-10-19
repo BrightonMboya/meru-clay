@@ -100,7 +100,7 @@ const server = createServer(async (req, res) => {
     return send(res, 200, { count: txs.size, last, transactions: [...txs.values()].map(view) });
   }
 
-  const control = /^\/_stub\/([^/]+)\/(complete|fail|void|expire|short)$/.exec(path);
+  const control = /^\/_stub\/([^/]+)\/(complete|fail|void|expire|cancel|short)$/.exec(path);
   if (req.method === 'POST' && control) {
     const reference = control[1] === 'last' ? last : decodeURIComponent(control[1]);
     const tx = reference ? txs.get(reference) : null;
@@ -112,7 +112,7 @@ const server = createServer(async (req, res) => {
       tx.amount = Math.max(MIN_CHARGE, Math.floor(tx.amount / 2));
       tx.status = 'completed';
     } else {
-      tx.status = control[2] === 'complete' ? 'completed' : control[2] === 'fail' ? 'failed' : control[2] === 'void' ? 'voided' : 'expired';
+      tx.status = control[2] === 'complete' ? 'completed' : control[2] === 'fail' ? 'failed' : control[2] === 'void' ? 'voided' : control[2] === 'cancel' ? 'cancelled' : 'expired';
     }
     tx.completedAt = new Date().toISOString();
 

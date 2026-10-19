@@ -435,9 +435,21 @@ export function isCompleted(status: string | null): boolean {
   return status === 'completed';
 }
 
-/** Did it say the attempt is over and unsuccessful? */
+/**
+ * Did it say the attempt is over and unsuccessful?
+ *
+ * 'cancelled' is not in their docs' list of statuses but is what they
+ * actually send for a prompt nobody answered — as `payment.cancelled` on
+ * the webhook and as the status on verify, ten minutes after the charge.
+ * Missing it left every ignored prompt at 'processing' for good.
+ */
 export function isDead(status: string | null): boolean {
-  return status === 'failed' || status === 'voided' || status === 'expired';
+  return (
+    status === 'failed' ||
+    status === 'voided' ||
+    status === 'expired' ||
+    status === 'cancelled'
+  );
 }
 
 /**
