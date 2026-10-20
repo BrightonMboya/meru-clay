@@ -18,7 +18,7 @@ export const dynamic = 'force-dynamic';
  * Deliberately not the same rules as /api/bookings:
  *
  *   - No notice window. A walk-in is standing at the desk now; /book's
- *     hour of notice exists to stop a player booking a court they cannot
+ *     notice window exists to stop a player booking a court they cannot
  *     reach in time, which does not apply to somebody already here.
  *   - No hold. The player is present, so the row goes in 'confirmed' with no
  *     expiry — there is nothing for the coach to confirm later.

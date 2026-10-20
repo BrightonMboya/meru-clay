@@ -5,7 +5,7 @@
  * instead of by mouse. They deliberately behave like the desk and not like
  * /book:
  *
- *   - No hour of notice. /book's notice window stops a player buying a court
+ *   - No notice window. /book's notice window stops a player buying a court
  *     they cannot reach in time; somebody the office is booking for is on the
  *     phone now. `court_availability` takes `respectNotice` for the rare case
  *     the caller wants the public rule applied.
@@ -27,6 +27,7 @@ import {
   COURTS,
   conflictAt,
   courtName,
+  NOTICE_MINUTES,
   earliestStart,
   freeSlots,
   isValidStart,
@@ -89,7 +90,7 @@ export function registerCourtTools(server: McpServer) {
           .boolean()
           .default(false)
           .describe(
-            'Apply the public booking page\'s one hour of notice. False (the default) is the ' +
+            'Apply the public booking page\'s 15 minutes of notice. False (the default) is the ' +
               'desk rule: a slot starting in ten minutes is offerable to somebody on the phone.',
           ),
       },
@@ -100,7 +101,7 @@ export function registerCourtTools(server: McpServer) {
       const [bookings, blocks] = await Promise.all([liveBookings(date, now.epochMs), blocksOn(date)]);
 
       const occupied = occupancy(date, bookings, blocks, { withCoach });
-      const minStart = respectNotice ? earliestStart(date, 60, now) : date < now.date ? Infinity : OPEN_MIN;
+      const minStart = respectNotice ? earliestStart(date, NOTICE_MINUTES, now) : date < now.date ? Infinity : OPEN_MIN;
       const slots = freeSlots(durationMinutes as Duration, occupied, minStart);
 
       return ok({

@@ -31,6 +31,11 @@ describe('court prices', () => {
     expect(totalFor(60, false)).toBe(30_000);
     expect(totalFor(90, false)).toBe(45_000);
   });
+
+  it('charges the same with a coach', () => {
+    expect(totalFor(60, true)).toBe(30_000);
+    expect(totalFor(90, true)).toBe(45_000);
+  });
 });
 
 describe('normalisePhone', () => {

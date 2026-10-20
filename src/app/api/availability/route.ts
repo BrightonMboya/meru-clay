@@ -1,4 +1,4 @@
-import { earliestStart, freeSlots, occupancy } from '@/lib/availability';
+import { NOTICE_MINUTES, earliestStart, freeSlots, occupancy } from '@/lib/availability';
 import { blocksOn, liveBookings } from '@/lib/bookings';
 import { DURATIONS, isValidDate, nowLocal, type Duration } from '@/lib/time';
 
@@ -34,7 +34,7 @@ export async function GET(request: Request) {
     slots = freeSlots(
       duration as Duration,
       occupancy(date, bookings, blocks, { withCoach }),
-      earliestStart(date, 60, now),
+      earliestStart(date, NOTICE_MINUTES, now),
     );
   } catch (err) {
     console.error('availability failed:', err);

@@ -8,10 +8,10 @@
  *   is what /book mostly sells. These mirror the adult private rate as a
  *   placeholder. Confirm with the club before launch.
  *
- *   COACHING — the published adult private-lesson rate, straight off the price
- *   list. Added on top of the court. If the club's private rate already covers
- *   the court, zero this out rather than discounting COURT_HIRE, so the two
- *   numbers keep meaning what their names say.
+ *   COACHING — nothing on top. The club charges the same for a court with a
+ *   coach as without: 30k an hour, 45k for an hour and a half. Kept as its
+ *   own line so a coaching surcharge, if one ever comes back, goes here
+ *   rather than into COURT_HIRE.
  */
 
 import type { Duration } from './time';
@@ -22,8 +22,8 @@ export const COURT_HIRE: Record<Duration, number> = {
 };
 
 export const COACHING: Record<Duration, number> = {
-  60: 30_000,
-  90: 45_000,
+  60: 0,
+  90: 0,
 };
 
 export function totalFor(duration: Duration, withCoach: boolean): number {

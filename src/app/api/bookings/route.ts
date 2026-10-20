@@ -1,6 +1,7 @@
 import { after } from 'next/server';
 import {
   COURTS,
+  NOTICE_MINUTES,
   courtName,
   earliestStart,
   freeSlots,
@@ -69,7 +70,7 @@ export const POST = withAxiom(async function POST(request: Request) {
     const open = freeSlots(
       v.duration,
       occupancy(v.date, bookings, blocks, { withCoach: v.coach }),
-      earliestStart(v.date, 60, now),
+      earliestStart(v.date, NOTICE_MINUTES, now),
     );
     const offered = open.some((s) => s.court === v.court && s.start === v.start);
     if (!offered) return json({ error: 'That slot is no longer free.', slots: open }, 409);
@@ -107,7 +108,7 @@ export const POST = withAxiom(async function POST(request: Request) {
         occupancy(v.date, await liveBookings(v.date, now.epochMs), blocks, {
           withCoach: v.coach,
         }),
-        earliestStart(v.date, 60, now),
+        earliestStart(v.date, NOTICE_MINUTES, now),
       );
       return json({ error: 'Somebody just took that slot.', slots: fresh }, 409);
     }

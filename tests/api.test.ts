@@ -127,13 +127,13 @@ describe('POST /api/bookings — paying now', () => {
     expect(pay.expiresAt!.getTime() - Date.now()).toBeLessThanOrEqual(HOLD_MINUTES * 60_000);
   });
 
-  it('adds the coach to the price when one is booked', async () => {
+  it('charges the same with a coach as without', async () => {
     const slot = await freeSlot(undefined, 60, true);
     const created = await body(
       await book(post('/api/bookings', { ...slot, coach: true, name: 'Asha', phone: '0712999000' })),
     );
     const [pay] = await db.select().from(payments).where(eq(payments.id, created.paymentId as string));
-    expect(pay.amount).toBe(60_000);
+    expect(pay.amount).toBe(30_000);
   });
 
   it('gives the slot to one payer when two go for it', async () => {

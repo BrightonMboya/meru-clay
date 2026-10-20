@@ -139,10 +139,21 @@ export function freeSlots(
 }
 
 /**
+ * How long before a slot starts it can still be booked online. Short, because
+ * a court is paid for on the spot now rather than waiting on the coach to
+ * confirm — long enough to approve the mobile money prompt and get there.
+ */
+export const NOTICE_MINUTES = 15;
+
+/**
  * Earliest bookable minute on `date` — the open time on a future day, or
  * "the next grid step from now, plus a little notice" when it is today.
  */
-export function earliestStart(date: string, noticeMinutes = 60, now = nowLocal()): number {
+export function earliestStart(
+  date: string,
+  noticeMinutes = NOTICE_MINUTES,
+  now = nowLocal(),
+): number {
   if (date > now.date) return OPEN_MIN;
   if (date < now.date) return Infinity;
   const soonest = now.minutes + noticeMinutes;
