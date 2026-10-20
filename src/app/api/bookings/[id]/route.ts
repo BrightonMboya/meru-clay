@@ -1,5 +1,10 @@
+import { after } from 'next/server';
+
 import { courtName } from '@/lib/availability';
 import { cancelOwnBooking, getBookingDetail } from '@/lib/bookings';
+import { errorFields, log } from '@/lib/log';
+import { notifyEnv, notifyPaidCancel } from '@/lib/notify';
+import { paidBookingPayment } from '@/lib/payments';
 import { fmtLongDay, fmtRange, nowLocal } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
@@ -63,6 +68,35 @@ export async function DELETE(_request: Request, ctx: RouteContext<'/api/bookings
         result.reason === 'missing' ? 404 : 409,
       );
     }
+
+    // Money paid for a court that is now cancelled is not refunded by
+    // anything, so the club is told. A session booking is paid at nothing
+    // (`amount` 0) and its session comes back on its own, so it is skipped.
+    after(async () => {
+      try {
+        const b = await getBookingDetail(id);
+        if (!b || !b.paid || b.amount <= 0) return;
+        const payment = await paidBookingPayment(id);
+        const paidOn = payment?.paidAt ? fmtLongDay(nowLocal(payment.paidAt).date) : null;
+        log.warn('booking.paid_cancelled', {
+          bookingId: id,
+          amount: payment?.amount ?? b.amount,
+          online: payment !== null,
+        });
+        await notifyPaidCancel(notifyEnv(), {
+          bookingId: id,
+          name: b.name,
+          phone: b.phone,
+          amount: payment?.amount ?? b.amount,
+          paidOn,
+          court: `${fmtLongDay(b.date)} · ${fmtRange(b.start_min, b.end_min)} · ${courtName(b.court_id)}`,
+        });
+      } catch (err) {
+        log.error('booking.paid_cancel_notify_failed', { bookingId: id, ...errorFields(err) });
+      }
+      await log.flush();
+    });
+
     return json({ ok: true, id });
   } catch (err) {
     console.error('self-cancel failed:', err);

@@ -480,6 +480,24 @@ export async function setSessionDate(id: string, sessionDate: string): Promise<P
 
 /* ----------------------------------------------------------------- read */
 
+/** The online payment that paid for a court, if it was paid online. */
+export async function paidBookingPayment(bookingId: string): Promise<Payment | null> {
+  const [row] = await db
+    .select()
+    .from(paymentsTable)
+    .where(
+      and(
+        eq(paymentsTable.bookingId, bookingId),
+        eq(paymentsTable.purpose, 'booking'),
+        eq(paymentsTable.status, 'successful'),
+      ),
+    )
+    .orderBy(desc(paymentsTable.paidAt))
+    .limit(1);
+
+  return row ? toPayment(row) : null;
+}
+
 /**
  * A lead's trial payment that is still worth paying into, if any — the
  * newest that is pending, failed or in flight, and has not expired.

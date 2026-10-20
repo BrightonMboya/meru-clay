@@ -376,6 +376,67 @@ export async function notifyTrial(
 }
 
 /**
+ * A player cancelled a court they had already paid for, from their own link.
+ *
+ * Nothing refunds them automatically, so this is how the club finds out the
+ * money is sitting there — and, for now, how it counts how often it happens
+ * before deciding whether to refund, credit, or stop self-cancelling paid
+ * courts. Same rules as `notifyTrial`: never throws, silent while
+ * BOOKING_TO_EMAIL is unset.
+ */
+export async function notifyPaidCancel(
+  env: NotifyEnv,
+  c: {
+    bookingId: string;
+    name: string;
+    phone: string;
+    amount: number;
+    /** e.g. "Monday 20 October 2026", or null when it was marked paid at the desk. */
+    paidOn: string | null;
+    /** The court they gave up, e.g. "Saturday 25 October 2026 · 10:00 AM – 11:00 AM · Court A". */
+    court: string;
+  },
+): Promise<void> {
+  if (!env.BOOKING_TO_EMAIL) return;
+
+  const lines: Array<[string, string]> = [
+    ['Name', c.name],
+    ['Phone', c.phone],
+    ['Paid', `TSh ${c.amount.toLocaleString('en-US')}`],
+    ['Paid on', c.paidOn ?? 'Marked paid at the desk'],
+    ['Court', c.court],
+    ['Reference', c.bookingId.slice(0, 8)],
+  ];
+  const headline = `${c.name} paid${c.paidOn ? ` on ${c.paidOn}` : ''} but has cancelled their court.`;
+
+  try {
+    await deliver(env, {
+      to: env.BOOKING_TO_EMAIL,
+      subject: `Paid court cancelled — ${c.name}, TSh ${c.amount.toLocaleString('en-US')}`,
+      text: [
+        headline,
+        '',
+        ...lines.map(([k, v]) => `${k}: ${v}`),
+        '',
+        'Nothing has been refunded. The slot is free again.',
+      ].join('\n'),
+      html: [
+        `<p><strong>${escapeHtml(headline)}</strong></p>`,
+        '<table cellpadding="6" cellspacing="0" style="border-collapse:collapse;font:15px system-ui,sans-serif">',
+        ...lines.map(
+          ([k, v]) =>
+            `<tr><td style="color:#5F6B62;padding-right:18px">${k}</td><td><strong>${escapeHtml(v)}</strong></td></tr>`,
+        ),
+        '</table>',
+        '<p>Nothing has been refunded. The slot is free again.</p>',
+      ].join(''),
+    });
+  } catch (err) {
+    console.error('notify paid cancel failed:', err);
+  }
+}
+
+/**
  * Money arrived and the club cannot deliver.
  *
  * Almost always one thing: a court whose hold lapsed and was resold while
