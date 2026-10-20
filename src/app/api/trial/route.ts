@@ -7,7 +7,8 @@ import { emailFor } from '@/lib/purchase';
 import { publish } from '@/lib/realtime';
 import { refreshAttempt } from '@/lib/settle';
 import { normalisePhone } from '@/lib/roster';
-import { addDays, isValidDate, nowLocal } from '@/lib/time';
+import { closedOn } from '@/lib/schedule';
+import { addDays, isValidDate, nowLocal, weekdayOf } from '@/lib/time';
 import { withAxiom } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
@@ -113,6 +114,7 @@ function read(body: Record<string, unknown>): Parsed | { error: string } {
   if (!isValidDate(date) || date <= today || date > addDays(today, TRIAL_WINDOW_DAYS)) {
     return { error: 'Pick a day for your session.' };
   }
+  if (closedOn(weekdayOf(date))) return { error: 'The courts are closed that day. Pick another.' };
 
   return {
     name,

@@ -6,7 +6,7 @@
  * what is already taken. The whole engine is `freeSlots` below.
  */
 
-import { classesOn } from './schedule';
+import { classesOn, closedOn } from './schedule';
 import {
   CLOSE_MIN,
   DUSK_MIN,
@@ -76,6 +76,12 @@ export function occupancy(
 ): Interval[] {
   const out: Interval[] = [];
   const everyCourt = COURTS.map((c) => c.id);
+
+  // A day the club shuts every week takes both courts for all of it.
+  const closed = closedOn(weekdayOf(date));
+  if (closed) {
+    for (const court of everyCourt) out.push({ court, start: OPEN_MIN, end: CLOSE_MIN, reason: closed });
+  }
 
   for (const c of classesOn(weekdayOf(date))) {
     // A class ties up its court always, and the coach as well.

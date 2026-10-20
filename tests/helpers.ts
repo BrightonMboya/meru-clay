@@ -3,7 +3,8 @@ import { GET as availability } from '@/app/api/availability/route';
 import { db } from '@/lib/db/client';
 import { leads, players } from '@/lib/db/schema';
 import { markSuccessful } from '@/lib/payments';
-import { addDays, nowLocal } from '@/lib/time';
+import { closedOn } from '@/lib/schedule';
+import { addDays, nowLocal, weekdayOf } from '@/lib/time';
 
 /**
  * Empty every table the club writes to, keeping the courts the migrations
@@ -16,8 +17,16 @@ export async function reset() {
   `);
 }
 
-/** Tomorrow at the club — always bookable, never "too soon". */
-export const tomorrow = () => addDays(nowLocal().date, 1);
+/**
+ * The next day the club is open, from tomorrow — always bookable, never "too
+ * soon". Skips the weekly closed day (Monday maintenance), so the suite does
+ * not fail on a Sunday.
+ */
+export const tomorrow = () => {
+  let d = addDays(nowLocal().date, 1);
+  while (closedOn(weekdayOf(d))) d = addDays(d, 1);
+  return d;
+};
 
 export async function makePlayer(
   over: Partial<typeof players.$inferInsert> & { name?: string; phone?: string } = {},

@@ -4,7 +4,8 @@ import Link from 'next/link';
 import TrialForm from '@/components/checkout/TrialForm';
 import Footer from '@/components/marketing/Footer';
 import { TRIAL_FEE, TRIAL_WINDOW_DAYS, fmtTsh } from '@/lib/pricing';
-import { addDays, nowLocal } from '@/lib/time';
+import { closedOn } from '@/lib/schedule';
+import { addDays, nowLocal, weekdayOf } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,7 +28,10 @@ export const metadata: Metadata = {
  */
 export default function TrialPage() {
   const today = nowLocal().date;
-  const days = Array.from({ length: TRIAL_WINDOW_DAYS }, (_, i) => addDays(today, i + 1));
+  // Not on a day the courts are shut every week (Monday maintenance).
+  const days = Array.from({ length: TRIAL_WINDOW_DAYS }, (_, i) => addDays(today, i + 1)).filter(
+    (d) => !closedOn(weekdayOf(d)),
+  );
 
   return (
     <>

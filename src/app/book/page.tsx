@@ -4,7 +4,8 @@ import Link from 'next/link';
 import BookingWidget, { type CourtCol, type Day } from '@/components/booking/BookingWidget';
 import Footer from '@/components/marketing/Footer';
 import { COURTS, lastPlay } from '@/lib/availability';
-import { bookableDates, fmtDayLabel, fmtLongDay, fmtTime24 } from '@/lib/time';
+import { closedOn } from '@/lib/schedule';
+import { bookableDates, fmtDayLabel, fmtLongDay, fmtTime24, weekdayOf } from '@/lib/time';
 
 // Rendered on request: the date strip has to start from today, and the
 // availability it loads is live.
@@ -27,7 +28,10 @@ const nav = [
 ];
 
 export default function BookPage() {
-  const days: Day[] = bookableDates().map((d) => ({
+  // Days the courts are shut every week (Monday maintenance) are not offered.
+  const days: Day[] = bookableDates()
+    .filter((d) => !closedOn(weekdayOf(d)))
+    .map((d) => ({
     iso: d,
     long: fmtLongDay(d),
     ...fmtDayLabel(d),

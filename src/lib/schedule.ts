@@ -1,17 +1,15 @@
 /**
  * The weekly class grid — the single source of truth.
  *
- * Two things read this file, and they must never disagree:
- *   1. Pricing.tsx, to render the published schedule.
- *   2. availability.ts, to know when a court is already occupied by a class.
- *
- * If these drifted apart, the booking system would happily sell a court that
- * is in the middle of a class. Hence one file, in minutes.
+ * availability.ts reads it to know when a court is already taken by a class
+ * or shut for the day, so /book can never sell a court that is in the middle
+ * of a class. Hence one file, in minutes.
  *
  * Only put a session here once the club actually runs it. Everything that
- * reads this file treats a row as fact: the desk draws it on the day, /book
- * refuses to sell the court under it, and the pricing page publishes it to
- * players. Today that is one session — Friday social tennis.
+ * reads this file treats a row as fact: the desk draws it on the day and
+ * /book refuses to sell the court under it. Today that is one session —
+ * Friday social tennis — and Monday, when the courts are shut for
+ * maintenance.
  */
 
 import { parseHHMM } from './time';
@@ -45,6 +43,13 @@ export type ScheduleDay = {
   /** Weekday rows publish a time range; weekend rows publish a start time. */
   showRange: boolean;
   rows: ClassRow[];
+  /**
+   * Set when both courts are shut all day, every week — the reason, e.g.
+   * "Maintenance". Nothing can be booked on it, online or at the desk; see
+   * `occupancy` in src/lib/availability.ts. A one-off closure is a block,
+   * drawn at the desk, not this.
+   */
+  closed?: string;
 };
 
 const at = (from: string, to: string) => ({ start: parseHHMM(from), end: parseHHMM(to) });
@@ -63,7 +68,8 @@ export function classKey(court: number, startMin: number): string {
 }
 
 export const WEEK: ScheduleDay[] = [
-  { weekday: 1, label: 'MON', weekend: false, showRange: true, rows: [] },
+  // The courts are rested and rolled every Monday.
+  { weekday: 1, label: 'MON', weekend: false, showRange: true, rows: [], closed: 'Maintenance' },
   { weekday: 2, label: 'TUE', weekend: false, showRange: true, rows: [] },
   { weekday: 3, label: 'WED', weekend: false, showRange: true, rows: [] },
   { weekday: 4, label: 'THU', weekend: false, showRange: true, rows: [] },
@@ -82,8 +88,10 @@ export const WEEK: ScheduleDay[] = [
   { weekday: 0, label: 'SUN', weekend: true, showRange: true, rows: [] },
 ];
 
-/** Rendering order for the published grid: Monday first. */
-export const WEEK_IN_DISPLAY_ORDER = WEEK;
+/** Why both courts are shut all day on this weekday, or null when they are open. */
+export function closedOn(weekday: number): string | null {
+  return WEEK.find((d) => d.weekday === weekday)?.closed ?? null;
+}
 
 /** Classes occupying a court on a given weekday. */
 export function classesOn(weekday: number): ClassRow[] {

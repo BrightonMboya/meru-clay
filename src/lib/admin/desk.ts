@@ -20,7 +20,7 @@ import type { Reading } from '@/components/admin/ui';
 import type { Block } from '../blocks';
 import type { DeskBooking } from '../bookings';
 import { COURTS, lastPlay } from '../availability';
-import { classKey, classesOn } from '../schedule';
+import { classKey, classesOn, closedOn } from '../schedule';
 import { CLOSE_MIN, DURATIONS, DUSK_MIN, OPEN_MIN, fmtTime24, overlaps, weekdayOf } from '../time';
 
 /** What a block on the timeline is, which decides how it is painted. */
@@ -204,6 +204,23 @@ export function deskDay(src: DeskSource): Desk {
         .join(' · '),
       badge: displaced ? 'MOVED OFF CT 1' : undefined,
     });
+  }
+
+  // The weekly closed day. Not a block, so nothing to reopen from here — it
+  // is changed in src/lib/schedule.ts.
+  const weekly = closedOn(weekday);
+  if (weekly) {
+    for (const court of COURTS) {
+      entries.push({
+        id: `weekly-closed-${court.id}`,
+        court: court.id,
+        start: OPEN_MIN,
+        end: CLOSE_MIN,
+        kind: 'closed',
+        title: weekly.toUpperCase(),
+        detail: 'Closed every week',
+      });
+    }
   }
 
   // Closures the club has drawn over the day. A closure covering every court

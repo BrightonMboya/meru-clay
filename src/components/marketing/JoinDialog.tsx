@@ -26,13 +26,20 @@ import { resendPrompt, startPayment } from '@/lib/queries/payments';
  * each keep their own styling — a filled pill in the hero, an outline one at
  * the foot of the page.
  */
-export default function JoinDialog({ children }: { children: React.ReactNode }) {
+export default function JoinDialog({
+  children,
+  sessions: initialSessions = 8,
+}: {
+  children: React.ReactNode;
+  /** The pack the form opens on — the one whose button was pressed. */
+  sessions?: number;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [withKid, setWithKid] = useState(false);
-  const [sessions, setSessions] = useState<number>(8);
+  const [sessions, setSessions] = useState<number>(initialSessions);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,7 +50,7 @@ export default function JoinDialog({ children }: { children: React.ReactNode }) 
     setName('');
     setPhone('');
     setWithKid(false);
-    setSessions(8);
+    setSessions(initialSessions);
     setError(null);
   }
 
