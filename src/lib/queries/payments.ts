@@ -27,7 +27,7 @@ export type PaymentView = {
   status: PaymentStatus;
   amount: number;
   currency: string;
-  purpose: 'booking' | 'membership' | 'class' | 'trial';
+  purpose: 'booking' | 'membership' | 'class' | 'trial' | 'pack';
   title: string;
   detail: string;
   name: string;

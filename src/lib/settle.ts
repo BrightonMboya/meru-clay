@@ -36,8 +36,10 @@
 import 'server-only';
 
 import { fulfil } from './fulfil';
+import { log } from './log';
 import { getLead } from './leads';
-import { notifyEnv, notifyPaymentProblem, notifyTrial } from './notify';
+import { getBooking } from './bookings';
+import { notifyBooking, notifyEnv, notifyPack, notifyPaymentProblem, notifyTrial } from './notify';
 import {
   attachProviderRef,
   getPayment,
@@ -122,6 +124,52 @@ export async function settle(
   paymentId: string,
   providerRef: string,
   source: 'webhook' | 'cron' | 'verify' = 'verify',
+): Promise<SettleResult> {
+  const result = await settleOnce(paymentId, providerRef, source);
+  logOutcome(paymentId, source, result);
+  return result;
+}
+
+/**
+ * One event per settlement, at a level that says whether a person is needed.
+ *
+ * `blocked`, `duplicate` and `unknown` are errors: each is money that may be
+ * real with nothing done about it yet, and an Axiom monitor on them is the
+ * club hearing about it. A pack credited is logged by name, because "who
+ * bought sessions today" is a question the club will ask.
+ */
+function logOutcome(paymentId: string, source: string, r: SettleResult) {
+  const p = 'payment' in r ? r.payment : undefined;
+  const fields = {
+    paymentId,
+    source,
+    outcome: r.outcome,
+    ...(p ? { purpose: p.purpose, amount: p.amount } : {}),
+    ...('reason' in r && r.reason ? { reason: r.reason } : {}),
+  };
+
+  if (r.outcome === 'pending' || r.outcome === 'already') return;
+  if (r.outcome === 'blocked' || r.outcome === 'duplicate' || r.outcome === 'unknown') {
+    log.error('payment.needs_attention', fields);
+  } else if (r.outcome === 'failed' || r.outcome === 'refunded') {
+    log.warn(`payment.${r.outcome}`, fields);
+  } else {
+    log.info('payment.fulfilled', fields);
+    if (p?.purpose === 'pack') {
+      log.info('pack.credited', {
+        paymentId,
+        sessions: p.sessions,
+        amount: p.amount,
+        topUp: p.playerId !== null,
+      });
+    }
+  }
+}
+
+async function settleOnce(
+  paymentId: string,
+  providerRef: string,
+  source: 'webhook' | 'cron' | 'verify',
 ): Promise<SettleResult> {
   const payment = await getPayment(paymentId);
   if (!payment) return { outcome: 'unknown', reason: 'No such payment.' };
@@ -328,6 +376,25 @@ export async function settle(
         amount: p.amount,
         day: p.sessionDate ? fmtLongDay(p.sessionDate) : '—',
         campaign: lead?.campaign ?? null,
+      });
+    }
+    // A court paid for on /book. The club and the coach hear about it once
+    // it is paid and confirmed, not while it is an unpaid hold that may lapse.
+    if (done.outcome === 'fulfilled' && done.payment.purpose === 'booking' && done.payment.bookingId) {
+      const b = await getBooking(done.payment.bookingId).catch(() => null);
+      if (b) await notifyBooking(notifyEnv(), b);
+    }
+
+    // Same for a pack bought on the website: a new member, at any hour.
+    if (done.outcome === 'fulfilled' && done.payment.purpose === 'pack') {
+      const p = done.payment;
+      await notifyPack(notifyEnv(), {
+        id: p.id,
+        name: p.name,
+        phone: p.phone,
+        sessions: p.sessions ?? 0,
+        amount: p.amount,
+        topUp: p.playerId !== null,
       });
     }
     return { outcome: done.outcome === 'already' ? 'already' : 'fulfilled', payment: done.payment };

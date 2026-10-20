@@ -1,6 +1,7 @@
 import { getPayment, recordEvent } from '@/lib/payments';
 import { refreshAttempt } from '@/lib/settle';
 import { resendPush } from '@/lib/snippe';
+import { withAxiom } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +20,7 @@ export const dynamic = 'force-dynamic';
  *
  * Same authorisation as the rest of /api/payments/:id — holding the UUID.
  */
-export async function POST(_request: Request, ctx: RouteContext<'/api/payments/[id]/resend'>) {
+export const POST = withAxiom(async function POST(_request: Request, ctx: RouteContext<'/api/payments/[id]/resend'>) {
   const { id } = await ctx.params;
 
   const payment = await getPayment(id);
@@ -54,7 +55,7 @@ export async function POST(_request: Request, ctx: RouteContext<'/api/payments/[
 
   if (!pushed.ok) return json({ error: pushed.error }, 502);
   return json({ ok: true, settled: false });
-}
+});
 
 const sent = new Map<string, number>();
 const RESEND_EVERY_MS = 20_000;

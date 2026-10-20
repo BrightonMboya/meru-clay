@@ -15,6 +15,7 @@
  */
 
 import { MEMBERSHIP_TIERS, fmtTsh, lapses, type MembershipTier } from '@/lib/pricing';
+import type { PackBalance } from '@/lib/packs';
 import type { PlayerRow } from '@/lib/players';
 import {
   AVAILABILITY_BADGE,
@@ -63,6 +64,11 @@ export type Player = {
   membership: MembershipTier;
   /** Paid up to and including this date; null for never. */
   paidUntil: string | null;
+  /**
+   * Their session packs — bought, used, left — or null for somebody who has
+   * never bought one. Counted from bookings; see src/lib/packs.ts.
+   */
+  sessions: PackBalance | null;
   /** The one thing this row offers to do. */
   action: 'Remind' | 'Profile';
   junior: boolean;
@@ -128,6 +134,8 @@ export type RosterInput = {
   attended: Record<number, string>;
   /** Numbers with a court already booked in the next seven days. */
   bookedThisWeek: Set<string>;
+  /** `playerId -> sessions`, from `packBalances`. */
+  packs: Map<number, PackBalance>;
 };
 
 export function buildRoster({
@@ -136,6 +144,7 @@ export function buildRoster({
   lastPlayed,
   attended,
   bookedThisWeek,
+  packs,
 }: RosterInput): Roster {
   /**
    * Two sources for one fact, and the later of them wins. A booking knows a
@@ -144,7 +153,7 @@ export function buildRoster({
    * means neither can make the other look staler than it is.
    */
   const players = rows.map((row) =>
-    toPlayer(row, today, latest(lastPlayed[row.phone], attended[row.id])),
+    toPlayer(row, today, latest(lastPlayed[row.phone], attended[row.id]), packs.get(row.id) ?? null),
   );
 
   const members = rows.filter((r) => r.role === 'member');
@@ -233,7 +242,12 @@ function latest(a: string | undefined, b: string | undefined): string | undefine
   return a > b ? a : b;
 }
 
-function toPlayer(row: PlayerRow, today: string, playedOn: string | undefined): Player {
+function toPlayer(
+  row: PlayerRow,
+  today: string,
+  playedOn: string | undefined,
+  sessions: PackBalance | null,
+): Player {
   const junior = isJunior(row.birthYear, today);
   const coach = row.role === 'coach';
   const due = isDue(row, today);
@@ -253,6 +267,7 @@ function toPlayer(row: PlayerRow, today: string, playedOn: string | undefined): 
     availabilityChoice: row.availability,
     membership: row.membership,
     paidUntil: row.paidUntil,
+    sessions,
     action: due ? 'Remind' : 'Profile',
     junior,
     coach,

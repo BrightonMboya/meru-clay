@@ -1,12 +1,20 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { Dialog } from 'radix-ui';
 import { useState } from 'react';
-
-const SESSIONS = [4, 8, 16, 20];
+import { SESSION_PACKS, fmtTsh } from '@/lib/pricing';
+import { statusOf } from '@/lib/queries/http';
+import { resendPrompt, startPayment } from '@/lib/queries/payments';
 
 /**
  * The membership form, in a modal.
+ *
+ * Membership is a pack of sessions paid for up front, so this is a checkout:
+ * name, number, a pack, then the mobile money prompt. The same two calls the
+ * trial form makes — `/api/join` opens the payment, the shared
+ * `/api/payments/:id/pay` sends the prompt — and then /pay/<id> takes over,
+ * which already knows how to wait for a handset and say what happened.
  *
  * Built on Radix's Dialog rather than the club's own markup for the parts
  * that are easy to get wrong and invisible when you do: focus moves into the
@@ -19,26 +27,24 @@ const SESSIONS = [4, 8, 16, 20];
  * the foot of the page.
  */
 export default function JoinDialog({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
   const [withKid, setWithKid] = useState(false);
-  const [sessions, setSessions] = useState(8);
+  const [sessions, setSessions] = useState<number>(8);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
 
-  const ready = name.trim().length >= 2 && phone.trim().length > 0 && email.trim().length > 0;
+  const ready = name.trim().length >= 2 && phone.trim().length > 0;
+  const pack = SESSION_PACKS.find((p) => p.sessions === sessions) ?? SESSION_PACKS[1];
 
   function reset() {
     setName('');
     setPhone('');
-    setEmail('');
     setWithKid(false);
     setSessions(8);
     setError(null);
-    setDone(false);
   }
 
   // Closing is the end of the exchange either way, so clear it out — but only
@@ -58,20 +64,32 @@ export default function JoinDialog({ children }: { children: React.ReactNode }) 
       const res = await fetch('/api/join', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          name: name.trim(),
-          phone: phone.trim(),
-          email: email.trim(),
-          withKid,
-          sessions,
-        }),
+        body: JSON.stringify({ name: name.trim(), phone: phone.trim(), withKid, sessions }),
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
+      const body = await res.json().catch(() => null);
+      if (!res.ok || !body?.id) {
         setError(body?.error ?? 'Something went wrong. Please try again.');
         return;
       }
-      setDone(true);
+
+      const id: string = body.id;
+      if (body.status === 'processing') {
+        // A prompt from a moment ago is still live; push the same one again.
+        await resendPrompt(id).catch(() => {});
+      } else if (body.status !== 'successful') {
+        try {
+          await startPayment(id, phone.trim());
+        } catch (err) {
+          // A refusal Snippe could account for — a number on no network —
+          // stays here so they can fix it; the next press reuses the payment.
+          const s = statusOf(err);
+          if (s !== 409 && s !== 502) {
+            setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
+            return;
+          }
+        }
+      }
+      router.push(`/pay/${id}`);
     } catch {
       setError('We could not reach the club. Check your connection and try again.');
     } finally {
@@ -90,126 +108,98 @@ export default function JoinDialog({ children }: { children: React.ReactNode }) 
             takes half the screen the moment a field is focused, and a
             vertically centred panel gets shoved off the top of it. */}
         <Dialog.Content className="fixed left-1/2 top-4 z-50 max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[440px] -translate-x-1/2 overflow-y-auto rounded-3xl bg-cream p-7 shadow-2xl outline-none sm:top-1/2 sm:-translate-y-1/2 sm:p-9 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0">
-          {done ? (
-            <div className="flex flex-col items-start">
-              <Dialog.Title className="font-display text-[30px] font-medium leading-[1.1] tracking-[-0.02em] text-pine">
-                Welcome to the clay.
-              </Dialog.Title>
-              <Dialog.Description className="pt-4 text-[15px] leading-[24px] text-pine/70">
-                We have your details. Someone from the club will be in touch on WhatsApp shortly to
-                talk through membership and find you a first session.
-              </Dialog.Description>
-              <Dialog.Close className="mt-7 rounded-full bg-pine px-[26px] py-[13px] text-[15px] font-semibold text-cream transition-transform hover:scale-[1.03]">
-                Close
-              </Dialog.Close>
+          <form onSubmit={send} className="flex flex-col">
+            <Dialog.Title className="font-display text-[30px] font-medium leading-[1.1] tracking-[-0.02em] text-pine">
+              Become a member
+            </Dialog.Title>
+            <Dialog.Description className="pt-3 text-[15px] leading-[23px] text-pine/70">
+              Pick a pack of sessions and pay by mobile money. Then book courts online with your
+              number — no cash at the gate.
+            </Dialog.Description>
+
+            <div className="flex flex-col gap-5 pt-7">
+              <Field label="Full name">
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  autoComplete="name"
+                  required
+                  maxLength={80}
+                  className={inputClass}
+                />
+              </Field>
+
+              <Field label="Mobile money number" hint="Your number to book with">
+                <input
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  required
+                  placeholder="0712 345 678"
+                  className={inputClass}
+                />
+              </Field>
+
+              <Field label="Sessions">
+                <div className="relative">
+                  <select
+                    value={sessions}
+                    onChange={(e) => setSessions(Number(e.target.value))}
+                    className={`${inputClass} cursor-pointer appearance-none pr-11`}
+                  >
+                    {SESSION_PACKS.map((p) => (
+                      <option key={p.sessions} value={p.sessions}>
+                        {p.label} — TSh {fmtTsh(p.fee)}
+                      </option>
+                    ))}
+                  </select>
+                  <svg
+                    viewBox="0 0 16 16"
+                    aria-hidden
+                    className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-pine/40"
+                  >
+                    <path
+                      d="M4 6.5 8 10.5l4-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={1.5}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </div>
+              </Field>
+
+              <label className="flex cursor-pointer items-center gap-3 text-[15px] text-pine">
+                <input
+                  type="checkbox"
+                  checked={withKid}
+                  onChange={(e) => setWithKid(e.target.checked)}
+                  className="h-[18px] w-[18px] shrink-0 cursor-pointer rounded border-pine/30 accent-clay"
+                />
+                I&apos;ll be coming with a child
+              </label>
             </div>
-          ) : (
-            <form onSubmit={send} className="flex flex-col">
-              <Dialog.Title className="font-display text-[30px] font-medium leading-[1.1] tracking-[-0.02em] text-pine">
-                Become a member
-              </Dialog.Title>
-              <Dialog.Description className="pt-3 text-[15px] leading-[23px] text-pine/70">
-                Tell us how you play and we will call you back on WhatsApp.
-              </Dialog.Description>
 
-              <div className="flex flex-col gap-5 pt-7">
-                <Field label="Full name">
-                  <input
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    autoComplete="name"
-                    required
-                    maxLength={80}
-                    className={inputClass}
-                  />
-                </Field>
-
-                <Field label="Phone number" hint="We reach members on WhatsApp">
-                  <input
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    type="tel"
-                    inputMode="tel"
-                    autoComplete="tel"
-                    required
-                    placeholder="0712 345 678"
-                    className={inputClass}
-                  />
-                </Field>
-
-                <Field label="Email">
-                  <input
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    type="email"
-                    inputMode="email"
-                    autoComplete="email"
-                    required
-                    maxLength={160}
-                    placeholder="you@example.com"
-                    className={inputClass}
-                  />
-                </Field>
-
-                <Field label="Sessions a month">
-                  <div className="relative">
-                    <select
-                      value={sessions}
-                      onChange={(e) => setSessions(Number(e.target.value))}
-                      className={`${inputClass} cursor-pointer appearance-none pr-11`}
-                    >
-                      {SESSIONS.map((n) => (
-                        <option key={n} value={n}>
-                          {n} sessions
-                        </option>
-                      ))}
-                    </select>
-                    <svg
-                      viewBox="0 0 16 16"
-                      aria-hidden
-                      className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-pine/40"
-                    >
-                      <path
-                        d="M4 6.5 8 10.5l4-4"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth={1.5}
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </div>
-                </Field>
-
-                <label className="flex cursor-pointer items-center gap-3 text-[15px] text-pine">
-                  <input
-                    type="checkbox"
-                    checked={withKid}
-                    onChange={(e) => setWithKid(e.target.checked)}
-                    className="h-[18px] w-[18px] shrink-0 cursor-pointer rounded border-pine/30 accent-clay"
-                  />
-                  I&apos;ll be coming with a child
-                </label>
-              </div>
-
-              {error ? (
-                <p
-                  role="alert"
-                  className="mt-5 rounded-xl bg-clay-wash px-4 py-3 text-[14px] leading-[21px] text-clay-ink"
-                >
-                  {error}
-                </p>
-              ) : null}
-
-              <button
-                type="submit"
-                disabled={!ready || sending}
-                className="mt-7 rounded-full bg-clay px-[30px] py-4 text-[15px] font-semibold text-white transition-transform hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:scale-100"
+            {error ? (
+              <p
+                role="alert"
+                className="mt-5 rounded-xl bg-clay-wash px-4 py-3 text-[14px] leading-[21px] text-clay-ink"
               >
-                {sending ? 'Sending…' : 'Send my details'}
-              </button>
-            </form>
-          )}
+                {error}
+              </p>
+            ) : null}
+
+            <button
+              type="submit"
+              disabled={!ready || sending}
+              className="mt-7 rounded-full bg-clay px-[30px] py-4 text-[15px] font-semibold text-white transition-transform hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:scale-100"
+            >
+              {sending ? 'Sending the prompt…' : `Pay TSh ${fmtTsh(pack.fee)}`}
+            </button>
+          </form>
 
           <Dialog.Close
             aria-label="Close"

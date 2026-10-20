@@ -32,7 +32,7 @@
  */
 
 /** What a payment is for. Decides what fulfilling it does. */
-export const PAYMENT_PURPOSES = ['booking', 'membership', 'class', 'trial'] as const;
+export const PAYMENT_PURPOSES = ['booking', 'membership', 'class', 'trial', 'pack'] as const;
 export type PaymentPurpose = (typeof PAYMENT_PURPOSES)[number];
 
 /**
@@ -127,6 +127,7 @@ export const PURPOSE_LABEL: Record<PaymentPurpose, string> = {
   membership: 'Membership',
   class: 'Class',
   trial: 'Trial',
+  pack: 'Sessions',
 };
 
 /** How a status reads on the desk's screens. */

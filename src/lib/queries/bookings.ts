@@ -51,6 +51,8 @@ export type CreateBookingInput = {
   name: string;
   phone: string;
   email?: string;
+  /** Spend a session from the pack on `phone` instead of paying. */
+  pack?: boolean;
 };
 
 export type CreatedBooking = {
@@ -62,6 +64,10 @@ export type CreatedBooking = {
   when: string;
   coach: boolean;
   status: string;
+  /** The payment to send the prompt for. Null when a session paid for it. */
+  paymentId: string | null;
+  /** Sessions left after this booking, when it used one. */
+  left: number | null;
 };
 
 export function createBooking(input: CreateBookingInput) {
@@ -71,6 +77,28 @@ export function createBooking(input: CreateBookingInput) {
     body: JSON.stringify(input),
   });
 }
+
+/** What a member has left, found by the number they paid with. */
+export type MemberSessions =
+  | { found: false }
+  | { found: true; firstName: string; bought: number; used: number; left: number };
+
+export const memberSessions = {
+  key: (phone: string) => ['member-sessions', phone] as const,
+
+  options: (phone: string) =>
+    queryOptions({
+      queryKey: memberSessions.key(phone),
+      queryFn: ({ signal }) =>
+        getJson<MemberSessions>('/api/members/lookup', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ phone }),
+          signal,
+        }),
+      enabled: Boolean(phone),
+    }),
+};
 
 /** A rejected slot claim hands back what is still free, so the grid can refresh. */
 export function slotsFromError(err: unknown): Slot[] | null {

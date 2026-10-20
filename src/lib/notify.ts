@@ -14,9 +14,9 @@
  *
  * All three are sent in one small bounded batch rather than fanned out.
  *
- * A fourth goes to the same club inbox when somebody asks to join through
- * the homepage form — see `notifyEnquiry`. The lead row is the record; the
- * mail is only so that nobody has to be watching the board for it.
+ * A fourth goes to the same club inbox when somebody pays for sessions
+ * through the homepage form — see `notifyPack`. The roster row is the
+ * record; the mail is only so that nobody has to be watching for it.
  *
  * ── About the mail transport ─────────────────────────────────────────────
  * Resend, over plain HTTP — one API key, no binding, nothing host-specific,
@@ -269,71 +269,69 @@ async function emailClub(env: NotifyEnv, b: Booking): Promise<void> {
   });
 }
 
-/** Somebody asking to join, from the form on the homepage. */
-export type Enquiry = {
+/** Somebody paying for sessions, from the membership form on the homepage. */
+export type PackSale = {
+  id: string;
   name: string;
   phone: string;
-  email: string;
   sessions: number;
-  withKid: boolean;
+  amount: number;
+  /** True for somebody already on the roster topping up. */
+  topUp: boolean;
 };
 
 /**
- * Tell the club somebody wants to join.
+ * Tell the club somebody has paid for sessions.
  *
- * The lead row written before this is the record, and the board is where the
- * enquiry is actually worked — this is only so that joining is not something
- * the club finds out about by happening to look. Never throws, for the same
- * reason the booking notifications do not: the enquiry is already saved, and
- * a bounced mail must not turn it into an error the visitor sees.
+ * Sent once the money is in and the pack is on their roster row, not when
+ * the form is filled in: an unpaid attempt is already on the leads board,
+ * and the club only needs a mail for the ones that became members. Never
+ * throws, for the same reason the booking notifications do not.
  *
  * Silent while BOOKING_TO_EMAIL is unset, which is the same condition that
  * silences the booking notification.
  */
-export async function notifyEnquiry(env: NotifyEnv, e: Enquiry): Promise<void> {
+export async function notifyPack(env: NotifyEnv, e: PackSale): Promise<void> {
   if (!env.BOOKING_TO_EMAIL) return;
 
   const lines: Array<[string, string]> = [
     ['Name', e.name],
     ['Phone', e.phone],
-    ['Email', e.email],
-    ['Sessions a month', String(e.sessions)],
-    ['Bringing a child', e.withKid ? 'Yes' : 'No'],
+    ['Sessions', String(e.sessions)],
+    ['Paid', `TSh ${e.amount.toLocaleString('en-US')}`],
+    ['Reference', e.id.slice(0, 8)],
   ];
+  const headline = e.topUp
+    ? 'A member topped up their sessions.'
+    : 'Somebody joined and paid for sessions through the website.';
 
   try {
     await deliver(env, {
       to: env.BOOKING_TO_EMAIL,
-      // Answering the notification answers them.
-      replyTo: e.email,
-      subject: `Membership enquiry — ${e.name}`,
-      text: [
-        'Somebody asked to join through the website.',
-        '',
-        ...lines.map(([k, v]) => `${k}: ${v}`),
-        '',
-        'They are on the leads board, in New.',
-      ].join('\n'),
+      subject: `${e.topUp ? 'Sessions top-up' : 'New member'} — ${e.name}, ${e.sessions} sessions`,
+      text: [headline, '', ...lines.map(([k, v]) => `${k}: ${v}`), '', 'They are on the roster.'].join(
+        '\n',
+      ),
       html: [
-        '<p><strong>Somebody asked to join through the website.</strong></p>',
+        `<p><strong>${headline}</strong></p>`,
         '<table cellpadding="6" cellspacing="0" style="border-collapse:collapse;font:15px system-ui,sans-serif">',
         ...lines.map(
           ([k, v]) =>
             `<tr><td style="color:#5F6B62;padding-right:18px">${k}</td><td><strong>${escapeHtml(v)}</strong></td></tr>`,
         ),
         '</table>',
-        '<p>They are on the leads board, in New.</p>',
+        '<p>They are on the roster.</p>',
       ].join(''),
     });
   } catch (err) {
-    console.error('notify enquiry failed:', err);
+    console.error('notify pack failed:', err);
   }
 }
 
 /**
  * A paid trial, off the ads. Somebody has paid and is coming on the day they
  * picked; the club's half is to message them a time. Same rules as
- * `notifyEnquiry`: never throws, silent while BOOKING_TO_EMAIL is unset.
+ * `notifyPack`: never throws, silent while BOOKING_TO_EMAIL is unset.
  */
 export async function notifyTrial(
   env: NotifyEnv,
@@ -493,7 +491,7 @@ async function emailPlayer(env: NotifyEnv, b: Booking): Promise<void> {
     text: [
       `Hi ${b.name},`,
       '',
-      `Your court is held: ${when}.`,
+      `Your court is ${b.status === 'confirmed' ? 'confirmed' : 'held'}: ${when}.`,
       ...(b.coach ? ['', 'A coach is booked for this session.'] : []),
       '',
       'Oltrumet, Ngaramtoni — Arusha, at the foot of Mount Meru.',
@@ -505,7 +503,7 @@ async function emailPlayer(env: NotifyEnv, b: Booking): Promise<void> {
     ].join('\n'),
     html: [
       `<p>Hi ${escapeHtml(b.name)},</p>`,
-      `<p>Your court is held:<br><strong>${when}</strong></p>`,
+      `<p>Your court is ${b.status === 'confirmed' ? 'confirmed' : 'held'}:<br><strong>${when}</strong></p>`,
       b.coach ? '<p>A coach is booked for this session.</p>' : '',
       '<p>Oltrumet, Ngaramtoni — Arusha, at the foot of Mount Meru.</p>',
       '<p>Reply to this email or WhatsApp +255 782 628 288 to change anything.</p>',

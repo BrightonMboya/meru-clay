@@ -41,9 +41,15 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 
 import { confirmBooking, markPaid, overlappedByOthers } from './bookings';
 import { db } from './db/client';
-import { bookings as bookingsTable, leads as leadsTable, payments as paymentsTable } from './db/schema';
+import {
+  bookings as bookingsTable,
+  leads as leadsTable,
+  payments as paymentsTable,
+  players as playersTable,
+} from './db/schema';
 import { getEnrolment, markEnrolmentPaid } from './enrolments';
-import { createPlayer, markMembershipPaid } from './players';
+import { creditPack } from './packs';
+import { createPlayer, getPlayer, markMembershipPaid } from './players';
 import { getPayment, markUnfulfillable, recordEvent, type Payment } from './payments';
 import { MEMBERSHIP_TIERS, type MembershipTier } from './pricing';
 import { addMonths, nowLocal } from './time';
@@ -170,6 +176,8 @@ function apply(
       return applyClass(tx, row.enrolmentId!);
     case 'trial':
       return applyTrial(tx, row.leadId!);
+    case 'pack':
+      return applyPack(tx, row, today);
   }
 }
 
@@ -360,5 +368,60 @@ async function applyTrial(tx: Tx, leadId: number): Promise<Applied> {
     .set({ stage: 'trial_booked', updatedAt: new Date() })
     .where(and(eq(leadsTable.id, leadId), inArray(leadsTable.stage, ['new', 'contacted'])));
 
+  return { ok: true };
+}
+
+/**
+ * A session pack, paid for on the website.
+ *
+ * A top-up from somebody already on the roster just credits their pack. A
+ * newcomer is put on the roster first — on the 'pack' tier, which has no
+ * term and so never shows as due — and their lead is moved to JOINED and
+ * stitched to the new row, the same as `applyJoin`.
+ *
+ * A newcomer whose number is already a live member (added at the desk while
+ * they were paying, say) is the same person, so the pack goes on that row
+ * rather than the payment being refused. `creditPack` is idempotent on the
+ * payment, so a retried fulfilment cannot credit twice.
+ */
+async function applyPack(
+  tx: Tx,
+  row: typeof paymentsTable.$inferSelect,
+  today: string,
+): Promise<Applied> {
+  if (!row.sessions) return { ok: false, reason: 'The payment does not say how many sessions.' };
+
+  let playerId = row.playerId;
+
+  if (playerId !== null) {
+    if (!(await getPlayer(playerId, tx))) {
+      return { ok: false, reason: 'That member is no longer on the roster.' };
+    }
+  } else {
+    const created = await createPlayer(
+      { name: row.name, phone: row.phone, membership: 'pack', joinedOn: today },
+      today,
+      tx,
+    );
+    playerId = created?.id ?? null;
+    if (playerId === null && row.phone) {
+      const [existing] = await tx
+        .select({ id: playersTable.id })
+        .from(playersTable)
+        .where(and(eq(playersTable.phone, row.phone), eq(playersTable.active, true)))
+        .limit(1);
+      playerId = existing?.id ?? null;
+    }
+    if (playerId === null) return { ok: false, reason: 'Could not put them on the roster.' };
+
+    if (row.leadId !== null) {
+      await tx
+        .update(leadsTable)
+        .set({ stage: 'joined', playerId, updatedAt: new Date() })
+        .where(eq(leadsTable.id, row.leadId));
+    }
+  }
+
+  await creditPack(tx, { playerId, sessions: row.sessions, amount: row.amount, paymentId: row.id });
   return { ok: true };
 }

@@ -31,8 +31,9 @@
 import { and, asc, between, eq, gt, inArray, like, lt, lte, or, sql } from 'drizzle-orm';
 import { db, type Executor } from './db/client';
 import { bookings as bookingsTable, type BookingRecord } from './db/schema';
+import { spendablePack } from './packs';
 import { totalFor } from './pricing';
-import { HOLD_MINUTES, type Duration } from './time';
+import { HOLD_MINUTES, nowLocal, type Duration } from './time';
 import type { BookingRow } from './availability';
 
 /** Court closures moved to ./blocks; re-exported so callers keep one import. */
@@ -132,9 +133,17 @@ export type CreateInput = {
   confirmed?: boolean;
   /** They paid at the counter there and then. */
   paid?: boolean;
+  /**
+   * A member booking with a session from their pack, by player id. The
+   * booking goes in confirmed and paid, priced at nothing, and spends one
+   * session — or is refused with 'no-sessions' if they have none left.
+   */
+  packPlayerId?: number;
 };
 
-export type CreateResult = { ok: true; booking: Booking } | { ok: false; reason: 'taken' };
+export type CreateResult =
+  | { ok: true; booking: Booking }
+  | { ok: false; reason: 'taken' | 'no-sessions' };
 
 /** Postgres unique-violation. A race got past the overlap check; the slot is gone. */
 function isUniqueViolation(err: unknown): boolean {
@@ -176,6 +185,15 @@ export async function createBooking(input: CreateInput, now: number): Promise<Cr
 
       if (clash) return { ok: false, reason: 'taken' } as const;
 
+      // Spent in this transaction, under the member's own lock, so the last
+      // session cannot be spent twice by two bookings made at once.
+      const packId =
+        input.packPlayerId !== undefined ? await spendablePack(tx, input.packPlayerId) : null;
+      if (input.packPlayerId !== undefined && packId === null) {
+        return { ok: false, reason: 'no-sessions' } as const;
+      }
+      const confirmed = input.confirmed || packId !== null;
+
       const [row] = await tx
         .insert(bookingsTable)
         .values({
@@ -189,12 +207,14 @@ export async function createBooking(input: CreateInput, now: number): Promise<Cr
           email: input.email ?? null,
           notes: input.notes ?? null,
           coach: Boolean(input.coach),
-          status: input.confirmed ? 'confirmed' : 'held',
+          status: confirmed ? 'confirmed' : 'held',
           // A confirmed booking owns its slot outright; only a hold lapses.
-          expiresAt: input.confirmed ? null : expires,
-          confirmedAt: input.confirmed ? at : null,
-          paid: Boolean(input.paid),
-          amount: totalFor(input.duration as Duration, Boolean(input.coach)),
+          expiresAt: confirmed ? null : expires,
+          confirmedAt: confirmed ? at : null,
+          paid: Boolean(input.paid) || packId !== null,
+          // A session from a pack was paid for when the pack was.
+          amount: packId !== null ? 0 : totalFor(input.duration as Duration, Boolean(input.coach)),
+          packId,
           createdAt: at,
         })
         .returning();
@@ -339,6 +359,12 @@ export async function cancelOwnBooking(id: string, now: number): Promise<
   if (!row) return { ok: false, reason: 'missing' };
   if (row.status === 'cancelled') return { ok: false, reason: 'already' };
   if (row.status === 'held' && row.expires_at !== null && row.expires_at <= now) {
+    return { ok: false, reason: 'already' };
+  }
+  // Once it has started it has been played — and for a member it would hand
+  // back a session they have used, since a cancelled booking spends none.
+  const local = nowLocal(now);
+  if (row.date < local.date || (row.date === local.date && row.start_min <= local.minutes)) {
     return { ok: false, reason: 'already' };
   }
 

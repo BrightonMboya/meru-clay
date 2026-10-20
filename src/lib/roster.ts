@@ -105,13 +105,19 @@ export function initialsOf(name: string): string {
 /**
  * Tanzanian mobile numbers, normalised to +255.
  *
- * The same rule the booking routes apply — see src/app/api/bookings/route.ts.
- * Returns null when the number is not one, and '' for "no number on file",
- * which is a legitimate state: the desk signs people up off a paper list.
+ * Every way somebody types their own number is accepted — 0712 345 678,
+ * +255 712 345 678, 255712345678, 00255…, and the bare 712345678 — because
+ * the number is how a member is found, and "we could not find you" over a
+ * missing zero is the worst answer the booking page can give. Returns null
+ * when the number is not one, and '' for "no number on file", which is a
+ * legitimate state: the desk signs people up off a paper list.
+ *
+ * Plain on purpose: the booking page imports it to look a member up as they
+ * type.
  */
 export function normalisePhone(raw: string): string | null {
-  const stripped = raw.replace(/[\s-]/g, '');
+  const stripped = raw.replace(/[\s()-]/g, '');
   if (!stripped) return '';
-  if (!/^(\+?255|0)[67]\d{8}$/.test(stripped)) return null;
-  return stripped.replace(/^(\+?255|0)/, '+255');
+  if (!/^(\+?255|00255|0)?[67]\d{8}$/.test(stripped)) return null;
+  return `+255${stripped.slice(-9)}`;
 }

@@ -52,6 +52,7 @@ const cols: Col[] = [
   { head: 'LEVEL', w: 118 },
   { head: 'LADDER', w: 80 },
   { head: 'LAST PLAYED', w: 104 },
+  { head: 'SESSIONS', w: 112 },
   { head: 'AVAILABILITY', w: 152 },
   { head: '', w: 92, align: 'right' },
 ];
@@ -267,14 +268,40 @@ function PlayerRow({
         </span>
       </Cell>
       <Cell col={cols[5]}>
-        <Badge tone={availabilityTone[player.availability]}>{player.availability}</Badge>
+        <Sessions sessions={player.sessions} />
       </Cell>
       <Cell col={cols[6]}>
+        <Badge tone={availabilityTone[player.availability]}>{player.availability}</Badge>
+      </Cell>
+      <Cell col={cols[7]}>
         <Btn size="sm" pressed={on} onClick={onOpen}>
           {player.action}
         </Btn>
       </Cell>
     </Row>
+  );
+}
+
+/**
+ * What is left on their packs, over what they have used of it — "5 left",
+ * "3 of 8 used". A dash for somebody who has never bought one, and clay for
+ * somebody who has run out, because that is a member to message.
+ */
+function Sessions({ sessions }: { sessions: Player['sessions'] }) {
+  if (!sessions) return <span className="text-[13px] leading-4 text-neutral-400">—</span>;
+  return (
+    <span className="flex flex-col gap-0.5">
+      <span
+        className={`text-[16px] font-semibold leading-5 ${
+          sessions.left === 0 ? 'text-clay' : 'text-pine'
+        }`}
+      >
+        {sessions.left} left
+      </span>
+      <span className="text-[12px] leading-4 text-neutral-500">
+        {sessions.used} of {sessions.bought} used
+      </span>
+    </span>
   );
 }
 

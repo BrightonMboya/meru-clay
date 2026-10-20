@@ -14,6 +14,7 @@ import {
 import { deskBookings, hoursByDate, owedOnCourts } from '../bookings';
 import { enrolmentCounts } from '../enrolments';
 import { lastAttendedByPlayer } from '../attendance';
+import { packBalances } from '../packs';
 import { bookedBetween, dueBy, lastPlayedByPhone, listCoaches, listPlayers } from '../players';
 import { initialsOf } from '../roster';
 import { addDays, isValidDate, nowLocal, weekdayOf } from '../time';
@@ -98,14 +99,15 @@ export const loadDesk = cache(async (date?: string): Promise<Desk> => {
  */
 export const loadRoster = cache(async (): Promise<Roster> => {
   const today = nowLocal().date;
-  const [rows, lastPlayed, attended, bookedThisWeek] = await Promise.all([
+  const [rows, lastPlayed, attended, bookedThisWeek, packs] = await Promise.all([
     listPlayers(),
     lastPlayedByPhone(today),
     lastAttendedByPlayer(today),
     // Today plus six is seven days inclusive — the week the rail speaks for.
     bookedBetween(today, addDays(today, 6)),
+    packBalances(),
   ]);
-  return buildRoster({ today, rows, lastPlayed, attended, bookedThisWeek });
+  return buildRoster({ today, rows, lastPlayed, attended, bookedThisWeek, packs });
 });
 
 /**

@@ -74,9 +74,20 @@ export const MEMBERSHIP_TIERS = {
     months: 0,
     detail: 'Visitor rate per booking · off the ladder',
   },
+  /**
+   * Prepaid sessions, bought on the website — see `SESSION_PACKS`. No fee and
+   * no term of its own: what they have left is counted from `session_packs`,
+   * so there is nothing here that can fall due.
+   */
+  pack: {
+    label: 'Session pack',
+    fee: 0,
+    months: 0,
+    detail: 'Prepaid sessions · booked online',
+  },
 } as const;
 
-export const MEMBERSHIPS = ['monthly', 'term', 'payg'] as const;
+export const MEMBERSHIPS = ['monthly', 'term', 'payg', 'pack'] as const;
 export type MembershipTier = (typeof MEMBERSHIPS)[number];
 
 export function isMembership(value: unknown): value is MembershipTier {
@@ -86,4 +97,28 @@ export function isMembership(value: unknown): value is MembershipTier {
 /** Only a tier with a term can lapse. */
 export function lapses(tier: MembershipTier): boolean {
   return MEMBERSHIP_TIERS[tier].months > 0;
+}
+
+/**
+ * Membership as the website sells it: a pack of sessions, paid up front.
+ *
+ * One session is one court booking, of either length, made with the phone
+ * number the pack was paid from. What somebody has left is never stored —
+ * it is the sessions they bought less the live bookings made against them,
+ * so cancelling a booking hands its session straight back. See
+ * `session_packs` in src/lib/db/schema.ts.
+ *
+ * The top pack is sold as "16–20 sessions" and credits twenty.
+ */
+export const SESSION_PACKS = [
+  { sessions: 4, fee: 100_000, label: '4 sessions' },
+  { sessions: 8, fee: 175_000, label: '8 sessions' },
+  { sessions: 12, fee: 250_000, label: '12 sessions' },
+  { sessions: 20, fee: 350_000, label: '16–20 sessions' },
+] as const;
+
+export type PackSize = (typeof SESSION_PACKS)[number]['sessions'];
+
+export function packOf(sessions: number) {
+  return SESSION_PACKS.find((p) => p.sessions === sessions) ?? null;
 }

@@ -17,6 +17,7 @@
 
 import { relations, sql } from 'drizzle-orm';
 import {
+  type AnyPgColumn,
   bigint,
   boolean,
   check,
@@ -108,6 +109,12 @@ export const bookings = pgTable(
     /** Whether the player has settled up. The desk chases the ones that haven't. */
     paid: boolean('paid').notNull().default(false),
     amount: integer('amount').notNull().default(0),
+    /**
+     * The session pack this booking spent, when a member booked with one
+     * rather than paying. A live booking here is a used session; see
+     * `session_packs`.
+     */
+    packId: integer('pack_id').references((): AnyPgColumn => sessionPacks.id),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -129,6 +136,7 @@ export const bookings = pgTable(
     index('idx_bookings_coach')
       .on(t.date, t.coach)
       .where(sql`coach and status in ('held', 'confirmed')`),
+    index('idx_bookings_pack').on(t.packId).where(sql`pack_id is not null`),
     check('bookings_status_check', sql`status in ('held', 'confirmed', 'cancelled')`),
     check('bookings_span_check', sql`end_min > start_min`),
   ],
@@ -500,6 +508,8 @@ export const payments = pgTable(
      * can pay for a second trial and the first one's day must not move.
      */
     sessionDate: date('session_date', { mode: 'string' }),
+    /** A session pack: how many sessions it credits. See `SESSION_PACKS`. */
+    sessions: integer('sessions'),
 
     /**
      * Who paid, as they were when they paid. Copied rather than joined: the
@@ -596,6 +606,10 @@ export const payments = pgTable(
       ) or (
         purpose = 'trial' and lead_id is not null and session_date is not null
           and booking_id is null and player_id is null and enrolment_id is null
+      ) or (
+        purpose = 'pack' and sessions is not null
+          and (player_id is null) <> (lead_id is null)
+          and booking_id is null and enrolment_id is null
       )`,
     ),
   ],
@@ -660,6 +674,41 @@ export const paymentEvents = pgTable(
     check('payment_events_source_check', sql.raw(`source in (${list(EVENT_SOURCES)})`)),
   ],
 );
+
+/**
+ * Sessions bought up front — membership as the website sells it.
+ *
+ * One row per pack bought. What is left is DERIVED, never stored: the
+ * sessions on a member's packs less the live bookings pointing at them
+ * (`bookings.pack_id`). So a booking cancelled is a session handed back, with
+ * nothing to keep in step, and the dashboard's "bought 8, used 3, 5 left"
+ * cannot disagree with the court sheet.
+ *
+ * `payment_id` is unique, which is what makes fulfilling the same payment
+ * twice credit one pack rather than two. It is null for a pack the desk
+ * sells over the counter.
+ */
+export const sessionPacks = pgTable(
+  'session_packs',
+  {
+    id: serial('id').primaryKey(),
+    playerId: integer('player_id')
+      .notNull()
+      .references(() => players.id),
+    sessions: integer('sessions').notNull(),
+    /** What was paid for it, in shillings, on the day. */
+    amount: integer('amount').notNull().default(0),
+    paymentId: text('payment_id').references(() => payments.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('uniq_pack_payment').on(t.paymentId).where(sql`payment_id is not null`),
+    index('idx_packs_player').on(t.playerId),
+    check('session_packs_sessions_check', sql`sessions > 0`),
+  ],
+);
+
+export type SessionPackRecord = typeof sessionPacks.$inferSelect;
 
 export type PaymentRecord = typeof payments.$inferSelect;
 export type NewPayment = typeof payments.$inferInsert;

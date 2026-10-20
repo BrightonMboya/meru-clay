@@ -1,33 +1,42 @@
-import { after } from 'next/server';
-
-import { createLead } from '@/lib/leads';
-import { notifyEnquiry, notifyEnv } from '@/lib/notify';
+import { LINK_HOURS } from '@/lib/checkout';
+import { createLead, leadByPhone } from '@/lib/leads';
+import { createPayment, openPackFor } from '@/lib/payments';
+import { playerByPhone } from '@/lib/players';
+import { packOf, type PackSize } from '@/lib/pricing';
+import { emailFor } from '@/lib/purchase';
 import { publish } from '@/lib/realtime';
 import { normalisePhone } from '@/lib/roster';
+import { refreshAttempt } from '@/lib/settle';
+import { errorFields, log, withAxiom } from '@/lib/log';
 
-/** The only session counts the form offers. */
-const SESSIONS = [4, 8, 16, 20] as const;
-type Sessions = (typeof SESSIONS)[number];
+export const dynamic = 'force-dynamic';
 
 /**
  * POST /api/join — the membership form on the homepage.
  *
- * Public, deliberately: it is the front door. That has two consequences worth
- * stating, because neither is an oversight.
+ * Membership is a pack of sessions paid up front (`SESSION_PACKS`), so this
+ * opens a payment and nothing more — the same shape as /api/trial. The page
+ * then sends the USSD prompt through the shared `/api/payments/:id/pay` and
+ * moves to /pay/<id>. When the money lands, `fulfil` puts them on the roster
+ * with the pack credited; see `applyPack` in src/lib/fulfil.ts.
  *
- * The first is spam. `uniq_lead_phone` means the same number cannot make a
- * second live lead however many times the form is sent, so the cheap flood —
- * one person pressing the button — writes one row. A flood from many invented
- * numbers is still possible and is not defended here; if it ever happens the
- * answer is a rule at the edge, not a check in this file.
+ * Who the payment is for:
  *
- * The second is what we say back. A number already on the board returns the
- * same 201 as a fresh one. Saying "that number is already a lead" would let
- * anybody test numbers against the club's CRM one at a time, and the person
- * filling the form in is owed the same reassuring answer either way — they
- * asked to be contacted, and they will be.
+ *   already on the roster → a top-up, against their player row
+ *   anybody else          → a lead (found or created), so an unpaid attempt
+ *                           is still somebody on the board to follow up
+ *
+ * The response is the same either way — a payment id — so the form cannot be
+ * used to test numbers against the roster. The person typing the number is
+ * the one who will approve the prompt, and the worst a stranger can do with
+ * somebody else's number is send them a prompt they decline.
+ *
+ * ── Twice ────────────────────────────────────────────────────────────────
+ * Pressing Join again for the same pack reuses the open payment rather than
+ * opening a second; if a prompt is genuinely still out (`refreshAttempt` has
+ * asked Snippe), the page is sent to that payment instead of a new charge.
  */
-export async function POST(request: Request) {
+export const POST = withAxiom(async function POST(request: Request) {
   let body: Record<string, unknown>;
   try {
     body = await request.json();
@@ -39,46 +48,67 @@ export async function POST(request: Request) {
   if ('error' in input) return json({ error: input.error }, 400);
 
   try {
-    const saved = await createLead({
-      name: input.name,
-      phone: input.phone,
-      email: input.email,
-      source: 'other',
-      campaign: 'Website membership form',
-      note: input.note,
-    });
+    const pack = packOf(input.sessions)!;
+    const player = await playerByPhone(input.phone);
 
-    // `saved` is null when that number is already a live lead. Nothing to
-    // announce in that case — the card the desk needs is already on the board.
-    if (saved) {
-      await publish(null);
-      // After the response, not before it: the club's mail is not something
-      // the visitor should be made to wait on, and it must not be able to
-      // fail their enquiry either. Same treatment a booking gets.
-      after(() =>
-        notifyEnquiry(notifyEnv(), {
-          name: input.name,
-          phone: input.phone,
-          email: input.email,
-          sessions: input.sessions,
-          withKid: input.withKid,
-        }),
-      );
+    let target: { playerId: number } | { leadId: number };
+    if (player) {
+      target = { playerId: player.id };
+    } else {
+      let lead = await leadByPhone(input.phone);
+      if (!lead) {
+        lead =
+          (await createLead({
+            name: input.name,
+            phone: input.phone,
+            source: 'other',
+            campaign: 'Website membership form',
+            note: input.note,
+          })) ??
+          // Lost the race to a second tap; the winner's row is the lead.
+          (await leadByPhone(input.phone));
+        if (!lead) throw new Error(`lead for ${input.phone} neither created nor found`);
+        await publish(null);
+      }
+      target = { leadId: lead.id };
     }
 
-    return json({ ok: true }, 201);
+    const found = await openPackFor(target, pack.sessions);
+    const open = found ? await refreshAttempt(found) : null;
+    if (open && ['successful', 'pending', 'failed', 'processing'].includes(open.status)) {
+      log.info('membership.checkout_reused', { paymentId: open.id, status: open.status, sessions: pack.sessions });
+      return json({ ok: true, id: open.id, status: open.status });
+    }
+
+    const payment = await createPayment({
+      purpose: 'pack',
+      amount: pack.fee,
+      sessions: pack.sessions,
+      ...target,
+      name: player?.name ?? input.name,
+      phone: input.phone,
+      email: emailFor(player?.email, input.phone.slice(-8)),
+      expiresAt: new Date(Date.now() + LINK_HOURS * 3_600_000),
+    });
+
+    log.info('membership.checkout_opened', {
+      paymentId: payment.id,
+      sessions: pack.sessions,
+      amount: pack.fee,
+      topUp: player !== null,
+      ...('leadId' in target ? { leadId: target.leadId } : { playerId: target.playerId }),
+    });
+    return json({ ok: true, id: payment.id, status: payment.status }, 201);
   } catch (err) {
-    console.error('membership enquiry failed:', err);
+    log.error('membership.checkout_failed', errorFields(err));
     return json({ error: 'Something went wrong our end. Please try again.' }, 500);
   }
-}
+});
 
 type Parsed = {
   name: string;
   phone: string;
-  email: string;
-  sessions: Sessions;
-  withKid: boolean;
+  sessions: PackSize;
   note: string;
 };
 
@@ -94,38 +124,24 @@ function read(body: Record<string, unknown>): Parsed | { error: string } {
 
   const phone = normalisePhone(String(body.phone ?? ''));
   if (phone === null) return { error: 'That phone number does not look right.' };
-  if (!phone) return { error: 'We need a phone number to reach you on.' };
+  if (!phone) return { error: 'We need your mobile money number.' };
 
-  // Required here, unlike at the desk, where a walk-in genuinely may not
-  // have one. Somebody typing into a form on their own phone does.
-  const email = String(body.email ?? '').trim();
-  if (!email) return { error: 'Please enter your email address.' };
-  if (email.length > 160 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-    return { error: 'That email address does not look right.' };
-  }
-
-  const sessions = Number(body.sessions);
-  if (!isSessions(sessions)) return { error: 'Choose how many sessions a month.' };
+  const pack = packOf(Number(body.sessions));
+  if (!pack) return { error: 'Choose how many sessions.' };
 
   const withKid = body.withKid === true;
 
-  // Free text rather than columns of its own. The desk reads this on the lead
-  // card, and both answers are opening-conversation material rather than
-  // anything the club filters or counts on. Give them columns the day
-  // somebody wants "every enquiry bringing a child".
+  // Free text rather than a column: the desk reads it on the lead card, and
+  // it is conversation material rather than anything the club counts on.
   const note = [
-    'Membership enquiry from the website.',
-    `Planning ${sessions} sessions a month.`,
+    'Membership from the website.',
+    `Chose ${pack.label}.`,
     withKid ? 'Bringing a child.' : null,
   ]
     .filter(Boolean)
     .join(' ');
 
-  return { name, phone, email, sessions, withKid, note };
-}
-
-function isSessions(value: number): value is Sessions {
-  return (SESSIONS as readonly number[]).includes(value);
+  return { name, phone, sessions: pack.sessions, note };
 }
 
 function json(body: unknown, status = 200) {

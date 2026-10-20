@@ -140,6 +140,8 @@ function what(p: Payment): string {
       return 'Class place';
     case 'trial':
       return 'Trial session';
+    case 'pack':
+      return `${p.sessions ?? '?'} sessions${p.playerId !== null ? ' (top-up)' : ''}`;
   }
 }
 

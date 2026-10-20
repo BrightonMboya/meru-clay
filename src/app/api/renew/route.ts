@@ -3,6 +3,7 @@ import { after } from 'next/server';
 import { RESEND_MINUTES, renewalLink } from '@/lib/paylink';
 import { playerByPhone } from '@/lib/players';
 import { normalisePhone } from '@/lib/roster';
+import { withAxiom } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,7 +37,7 @@ export const dynamic = 'force-dynamic';
  * between a member and a stranger either. A faster 200 for unknown numbers
  * would leak exactly what the wording is careful not to.
  */
-export async function POST(request: Request) {
+export const POST = withAxiom(async function POST(request: Request) {
   let body: Record<string, unknown>;
   try {
     body = await request.json();
@@ -88,7 +89,7 @@ export async function POST(request: Request) {
     message:
       'If that number is a member with a subscription due, we have sent a payment link to it on WhatsApp.',
   });
-}
+});
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {

@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 
 import { sql } from '@/lib/db/client';
+import { errorFields, log, withAxiom } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,7 +16,7 @@ export const dynamic = 'force-dynamic';
  * Vercel sends `authorization: Bearer $CRON_SECRET` on cron requests, the
  * same secret /api/cron/payments checks.
  */
-export async function GET(request: Request) {
+export const GET = withAxiom(async function GET(request: Request) {
   const expected = process.env.CRON_SECRET;
   const given = (request.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '');
   const a = Buffer.from(given);
@@ -27,9 +28,9 @@ export async function GET(request: Request) {
   try {
     await sql`select 1`;
   } catch (err) {
-    console.error('keepalive: database did not answer:', err);
+    log.error('cron.database_unreachable', errorFields(err));
     return new Response('database unreachable', { status: 500 });
   }
 
   return new Response('ok', { headers: { 'cache-control': 'no-store' } });
-}
+});

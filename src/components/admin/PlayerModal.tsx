@@ -131,6 +131,8 @@ export function PlayerModal({
               </h2>
               <span className="truncate text-[13px] leading-[18px] text-neutral-500">
                 {player.sub} · last played {player.lastPlayed.toLowerCase()}
+                {player.sessions &&
+                  ` · ${player.sessions.left} of ${player.sessions.bought} sessions left`}
               </span>
             </div>
           </div>

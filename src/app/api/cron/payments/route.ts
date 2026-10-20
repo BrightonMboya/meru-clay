@@ -17,6 +17,7 @@ import {
 import { settle } from '@/lib/settle';
 import { dueBy } from '@/lib/players';
 import { addDays, nowLocal } from '@/lib/time';
+import { errorFields, log, withAxiom } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,7 +61,7 @@ export const dynamic = 'force-dynamic';
  * Every step is idempotent, so running it twice, or running `all` on a
  * five-minute schedule, is harmless.
  */
-export async function POST(request: Request) {
+export const POST = withAxiom(async function POST(request: Request) {
   if (!authorised(request)) return new Response('unauthorised', { status: 401 });
 
   const job = new URL(request.url).searchParams.get('job') ?? 'sweep';
@@ -70,12 +71,13 @@ export async function POST(request: Request) {
     if (job === 'sweep' || job === 'all') Object.assign(report, await sweep());
     if (job === 'reminders' || job === 'all') Object.assign(report, await reminders());
   } catch (err) {
-    console.error('payment cron failed:', err);
+    log.error('cron.payments_failed', { job, ...report, ...errorFields(err) });
     return json({ ...report, error: 'The sweep did not finish.' }, 500);
   }
 
+  log.info('cron.payments_done', { job, ...report });
   return json(report);
-}
+});
 
 /**
  * A shared secret in an `authorization: Bearer` header.
@@ -89,7 +91,7 @@ export async function POST(request: Request) {
 function authorised(request: Request): boolean {
   const expected = process.env.CRON_SECRET;
   if (!expected) {
-    console.error('CRON_SECRET is unset — refusing to run scheduled payment work.');
+    log.error('cron.secret_unset');
     return false;
   }
 
@@ -142,7 +144,7 @@ async function each<T extends { id: string }>(
       await job(row);
     } catch (err) {
       failed += 1;
-      console.error(`sweep: payment ${row.id} threw:`, err);
+      log.error('cron.sweep_payment_threw', { paymentId: row.id, ...errorFields(err) });
     }
   }
   return failed;
@@ -209,7 +211,7 @@ async function sweep() {
       'checked automatically. Look it up in the Snippe dashboard by the payer’s number.';
 
     await notifyPaymentProblem(notifyEnv(), payment, reason).catch((err) =>
-      console.error(`orphan ${payment.id}: could not raise the alarm:`, err),
+      log.error('cron.alarm_failed', { paymentId: payment.id, ...errorFields(err) }),
     );
     await recordEvent({
       paymentId: payment.id,
@@ -302,10 +304,7 @@ async function reminders() {
       quiet += 1;
       // A throttled send is the guard working, not a failure worth shouting.
       if (!result.throttled) {
-        console.error(
-          `reminder for player ${player.id} was not delivered` +
-            (result.sendError ? ` — ${result.sendError}` : ''),
-        );
+        log.warn('cron.reminder_undelivered', { playerId: player.id, reason: result.sendError });
       }
     }
   }

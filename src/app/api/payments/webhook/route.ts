@@ -4,6 +4,7 @@ import { paymentIdFrom } from '@/lib/checkout';
 import { paymentByProviderRef, paymentByTxRef, recordEvent } from '@/lib/payments';
 import { settle } from '@/lib/settle';
 import { readEvent, verifyWebhook } from '@/lib/snippe';
+import { errorFields, log, withAxiom } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,7 +46,7 @@ export const dynamic = 'force-dynamic';
  * interesting kind of event there is, and dropping it would destroy the
  * only evidence.
  */
-export async function POST(request: Request) {
+export const POST = withAxiom(async function POST(request: Request) {
   // The raw bytes, kept raw. The signature is over exactly what Snippe
   // sent; parsing and re-serialising reorders keys and breaks it.
   const raw = await request.text();
@@ -60,7 +61,7 @@ export async function POST(request: Request) {
     // 401 rather than 200: this is not a delivery we are acknowledging.
     // Snippe will retry, which is what we want if the cause is a signing
     // key we have only just set.
-    console.error(`payment webhook refused — ${signed.why}`);
+    log.error('payment.webhook_refused', { why: signed.why });
     return new Response('unauthorised', { status: 401 });
   }
 
@@ -89,33 +90,29 @@ export async function POST(request: Request) {
   });
 
   if (!paymentId) {
-    console.error(
-      `payment webhook could not be matched: ${hook.type} / ${hook.reference ?? '—'}. ` +
-        'The delivery is in payment_events with a null payment_id.',
-    );
+    // Money may have moved that this system does not know about.
+    log.error('payment.webhook_unmatched', { type: hook.type, providerRef: hook.reference });
   } else if (!hook.reference) {
     // Without Snippe's reference there is nothing to verify against, and
     // this route does not settle on a body alone. The sweep will pick the
     // payment up from the ledger, where the reference already is.
-    console.error(`payment webhook for ${paymentId} carried no provider reference.`);
+    log.warn('payment.webhook_no_reference', { paymentId, type: hook.type });
   } else {
     const reference = hook.reference;
     after(async () => {
       try {
         const result = await settle(paymentId, reference, 'webhook');
-        if (result.outcome === 'unknown') {
-          console.error(`payment ${paymentId}: webhook settle inconclusive — ${result.reason}`);
-        } else if (result.outcome === 'blocked' || result.outcome === 'duplicate') {
-          // `settle` has already flagged the row and raised the alarm; this
-          // is the line that makes it findable in the deployment's logs.
-          console.error(`payment ${paymentId}: ${result.outcome} — ${result.reason}`);
-        }
+        // `settle` logs its own outcome; see src/lib/settle.ts.
+        void result;
       } catch (err) {
         // Swallowed on purpose: the response has already gone, and the
         // cron sweep re-verifies anything left at 'processing'. Throwing
         // here would only produce an unhandled rejection.
-        console.error(`payment ${paymentId}: settling after webhook threw:`, err);
+        log.error('payment.webhook_settle_threw', { paymentId, ...errorFields(err) });
       }
+      // This runs after the response, possibly after the request's own
+      // flush, so it sends what it logged itself.
+      await log.flush();
     });
   }
 
@@ -125,4 +122,4 @@ export async function POST(request: Request) {
     status: 200,
     headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
   });
-}
+});

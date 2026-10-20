@@ -56,6 +56,8 @@ export type Payment = {
   tier: MembershipTier | null;
   /** A trial's day, YYYY-MM-DD. Null for everything else. */
   sessionDate: string | null;
+  /** How many sessions a pack credits. Null for everything else. */
+  sessions: number | null;
   name: string;
   phone: string;
   email: string;
@@ -94,6 +96,7 @@ function toPayment(r: PaymentRecord): Payment {
     enrolmentId: r.enrolmentId,
     tier: r.tier,
     sessionDate: r.sessionDate,
+    sessions: r.sessions,
     name: r.name,
     phone: r.phone,
     email: r.email,
@@ -125,6 +128,7 @@ export type NewPaymentInput = {
   enrolmentId?: number;
   tier?: MembershipTier;
   sessionDate?: string;
+  sessions?: number;
   method?: PaymentMethod;
   /** When the link stops working. See `LINK_HOURS`. */
   expiresAt: Date;
@@ -155,6 +159,7 @@ export async function createPayment(input: NewPaymentInput): Promise<Payment> {
       enrolmentId: input.enrolmentId ?? null,
       tier: input.tier ?? null,
       sessionDate: input.sessionDate ?? null,
+      sessions: input.sessions ?? null,
       expiresAt: input.expiresAt,
     })
     .returning();
@@ -487,6 +492,36 @@ export async function openTrialFor(leadId: number): Promise<Payment | null> {
       and(
         eq(paymentsTable.leadId, leadId),
         eq(paymentsTable.purpose, 'trial'),
+        inArray(paymentsTable.status, ['pending', 'failed', 'processing']),
+        or(isNull(paymentsTable.expiresAt), gte(paymentsTable.expiresAt, new Date())),
+      ),
+    )
+    .orderBy(desc(paymentsTable.createdAt))
+    .limit(1);
+
+  return row ? toPayment(row) : null;
+}
+
+/**
+ * A pack payment still worth paying into, for the same buyer and the same
+ * pack — so somebody who presses Join twice, or comes back after declining
+ * the prompt, pays into one payment rather than leaving dead ones on Takings.
+ * The same rule as `openTrialFor`.
+ */
+export async function openPackFor(
+  target: { leadId: number } | { playerId: number },
+  sessions: number,
+): Promise<Payment | null> {
+  const [row] = await db
+    .select()
+    .from(paymentsTable)
+    .where(
+      and(
+        'leadId' in target
+          ? eq(paymentsTable.leadId, target.leadId)
+          : eq(paymentsTable.playerId, target.playerId),
+        eq(paymentsTable.purpose, 'pack'),
+        eq(paymentsTable.sessions, sessions),
         inArray(paymentsTable.status, ['pending', 'failed', 'processing']),
         or(isNull(paymentsTable.expiresAt), gte(paymentsTable.expiresAt, new Date())),
       ),

@@ -12,6 +12,7 @@ import {
 import { describePayment } from '@/lib/purchase';
 import { refreshAttempt } from '@/lib/settle';
 import { chargeMobileMoney, snippeConfigured, toMsisdn } from '@/lib/snippe';
+import { log, withAxiom } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,11 +45,11 @@ export const dynamic = 'force-dynamic';
  * refusal Snippe actually admitted to — the ordering that cannot lose a
  * charge whose response went missing.
  */
-export async function POST(request: Request, ctx: RouteContext<'/api/payments/[id]/pay'>) {
+export const POST = withAxiom(async function POST(request: Request, ctx: RouteContext<'/api/payments/[id]/pay'>) {
   const { id } = await ctx.params;
 
   if (!snippeConfigured()) {
-    console.error('SNIPPE_API_KEY is unset — /pay cannot take money.');
+    log.error('payment.provider_unconfigured', { paymentId: id });
     return json({ error: 'Mobile money is not switched on yet. Please pay at the court.' }, 503);
   }
 
@@ -116,6 +117,14 @@ export async function POST(request: Request, ctx: RouteContext<'/api/payments/[i
       await markUnfulfillable(id, `${charge.error} We are checking whether it went through.`);
     }
 
+    // Unresolved is the dangerous one: money may have moved and we do not know.
+    log.log(charge.resolved ? 'warn' : 'error', charge.resolved ? 'payment.prompt_refused' : 'payment.prompt_unresolved', {
+      paymentId: id,
+      purpose: payment.purpose,
+      amount: payment.amount,
+      reason: charge.error,
+    });
+
     await recordEvent({
       paymentId: id,
       source: 'checkout',
@@ -144,6 +153,13 @@ export async function POST(request: Request, ctx: RouteContext<'/api/payments/[i
   // only question the cron sweep can ask Snippe about this payment, and a
   // payer who approves the prompt in four seconds must not beat it here.
   await attachProviderRef(id, charge.reference);
+  log.info('payment.prompt_sent', {
+    paymentId: id,
+    purpose: payment.purpose,
+    amount: payment.amount,
+    attempt: payment.attempt,
+    providerRef: charge.reference,
+  });
 
   after(async () => {
     await recordEvent({
@@ -163,7 +179,7 @@ export async function POST(request: Request, ctx: RouteContext<'/api/payments/[i
     /** What the page says while they look for their phone. */
     message: 'Check your phone and enter your mobile money PIN to approve.',
   });
-}
+});
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {

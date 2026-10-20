@@ -27,7 +27,7 @@ import { getEnrolment } from './enrolments';
 import { getLead } from './leads';
 import { getPlayer } from './players';
 import type { Payment } from './payments';
-import { MEMBERSHIP_TIERS, fmtTsh, lapses, type MembershipTier } from './pricing';
+import { MEMBERSHIP_TIERS, fmtTsh, lapses, packOf, type MembershipTier } from './pricing';
 import { fmtLongDay, fmtRange } from './time';
 
 /** One thing the club is charging for, ready to be paid or displayed. */
@@ -73,11 +73,10 @@ export function money(amount: number): string {
 /* ------------------------------------------------------------- forwards */
 
 /*
- * There is no `priceBooking` here, and paying for a court online is not
- * offered: a booking is held and settled at the desk, as it always was.
- * `describePayment` below still renders a payment whose purpose is
- * 'booking', because the ledger can hold one — the desk recording cash, say
- * — and `fulfil` still knows how to confirm the court behind it.
+ * There is no `priceBooking` here. A court is priced once, by `createBooking`
+ * from the same price list, and /api/bookings opens the payment from the
+ * booking row's own `amount` — so the figure on the payment is the figure on
+ * the booking, by construction.
  */
 
 /**
@@ -191,6 +190,13 @@ export async function describePayment(p: Payment): Promise<{ title: string; deta
 
   if (p.purpose === 'trial' && p.sessionDate) {
     return { title: 'Trial session', detail: fmtLongDay(p.sessionDate) };
+  }
+
+  if (p.purpose === 'pack' && p.sessions) {
+    return {
+      title: `${packOf(p.sessions)?.label ?? `${p.sessions} sessions`}`,
+      detail: p.playerId ? 'Topping up your sessions' : 'Joining Meru Clay',
+    };
   }
 
   if (p.purpose === 'class' && p.enrolmentId) {

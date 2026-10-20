@@ -2,17 +2,23 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useRef, useState } from 'react';
 import type { Slot } from '@/lib/availability';
-import { HOLD_MINUTES } from '@/lib/time';
+import { fmtTsh, totalFor } from '@/lib/pricing';
+import { normalisePhone } from '@/lib/roster';
 import {
   availability,
   createBooking,
+  memberSessions,
   slotsFromError,
   statusOf,
   type AvailabilityPayload,
+  type CreateBookingInput,
   type CreatedBooking,
+  type MemberSessions,
 } from '@/lib/queries/bookings';
+import { startPayment } from '@/lib/queries/payments';
 
 /** Re-exported so /book can keep importing its props from one place. */
 export type { Slot };
@@ -32,12 +38,6 @@ const field =
 const pill =
   'group rounded-full border border-pine/[0.18] px-[26px] py-3 transition-colors aria-checked:border-clay aria-checked:bg-clay';
 const pillText = 'text-[15px] font-semibold text-[#13271D] group-aria-checked:text-cream';
-
-/** Milliseconds left -> "6:12". Never counts below zero. */
-const mmss = (ms: number) => {
-  const total = Math.max(0, Math.floor(ms / 1000));
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
-};
 
 /** 990 -> "16:30", mirroring fmtTime24 in src/lib/time.ts. */
 const hhmm = (min: number) =>
@@ -64,33 +64,31 @@ export default function BookingWidget({
 
   const [picked, setPicked] = useState<Slot | null>(null);
   const [error, setError] = useState('');
-  const [held, setHeld] = useState<{
+  /** Paying now, or spending a session from a pack bought earlier. */
+  const [mode, setMode] = useState<'pay' | 'pack'>('pay');
+  const [phone, setPhone] = useState('');
+  /** Set only for a session booking; a payer leaves for /pay instead. */
+  const [booked, setBooked] = useState<{
     id: string;
     when: string;
     reference: string;
-    expiresAt: number;
+    left: number;
   } | null>(null);
 
   const formRef = useRef<HTMLFormElement>(null);
   const queryClient = useQueryClient();
+  const router = useRouter();
 
   /**
-   * Ticks only once a court is held, and only in the browser — a countdown
-   * rendered on the server is already wrong by the time it is read.
+   * The member, looked up as they type. `normalisePhone` only yields a number
+   * once all of it is there, in whichever spelling — so this asks once per
+   * complete number rather than once per keystroke.
    */
-  const [tick, setTick] = useState<number | null>(null);
-  useEffect(() => {
-    if (!held) {
-      setTick(null);
-      return;
-    }
-    setTick(Date.now());
-    const id = setInterval(() => setTick(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [held]);
+  const member = mode === 'pack' ? (normalisePhone(phone) ?? '') : '';
+  const lookup = useQuery(memberSessions.options(member));
+  const canSpend = Boolean(lookup.data?.found && lookup.data.left > 0);
 
-  const msLeft = held && tick !== null ? held.expiresAt - tick : null;
-  const lapsed = msLeft !== null && msLeft <= 0;
+  const price = totalFor(duration === 90 ? 90 : 60, coach);
 
   /**
    * Availability, keyed on every answer that changes it. React Query's key is
@@ -156,20 +154,34 @@ export default function BookingWidget({
     );
   }
 
+  /**
+   * Claim the slot, then — for a payer — send the prompt and move to /pay,
+   * which already knows how to wait for a handset and say what happened.
+   *
+   * Once the booking exists the page always goes to /pay, even if the prompt
+   * was refused: pressing the button here again would hold a second court,
+   * and /pay can take another number against the same booking.
+   */
   const book = useMutation({
-    mutationFn: createBooking,
+    mutationFn: async (input: CreateBookingInput): Promise<CreatedBooking> => {
+      const created = await createBooking(input);
+      if (created.paymentId) await startPayment(created.paymentId, input.phone).catch(() => {});
+      return created;
+    },
     onSuccess: (payload: CreatedBooking) => {
-      setHeld({
+      // The slot this player just took is gone for everyone.
+      void queryClient.invalidateQueries({ queryKey: ['availability'] });
+      if (payload.paymentId) {
+        router.push(`/pay/${payload.paymentId}`);
+        return;
+      }
+      setBooked({
         id: payload.id,
         when: `${payload.when} · ${payload.courtName}`,
         reference: payload.reference,
-        // The server holds the slot for HOLD_MINUTES from the moment it wrote
-        // the row; starting the clock here is within a round trip of that and
-        // always errs on the short side, which is the safe direction.
-        expiresAt: Date.now() + HOLD_MINUTES * 60_000,
+        left: payload.left ?? 0,
       });
-      // The slot this player just took is gone for everyone.
-      void queryClient.invalidateQueries({ queryKey: ['availability'] });
+      void queryClient.invalidateQueries({ queryKey: ['member-sessions'] });
     },
     onError: (err) => {
       const fresh = slotsFromError(err);
@@ -192,8 +204,7 @@ export default function BookingWidget({
 
     setError('');
     const data = Object.fromEntries(new FormData(e.currentTarget)) as {
-      name: string;
-      phone: string;
+      name?: string;
       email?: string;
     };
 
@@ -203,12 +214,20 @@ export default function BookingWidget({
       date,
       duration,
       coach,
-      ...data,
+      name: data.name ?? '',
+      email: data.email,
+      phone,
+      pack: mode === 'pack',
     });
   }
 
+  function switchMode(next: 'pay' | 'pack') {
+    setMode(next);
+    setError('');
+  }
+
   function bookAnother() {
-    setHeld(null);
+    setBooked(null);
     setPicked(null);
     book.reset();
     formRef.current?.reset();
@@ -398,43 +417,88 @@ export default function BookingWidget({
         </div>
       </div>
 
-      {/* Step 4 · details */}
-      {!held && (
+      {/* Step 4 · who, and how it is paid for */}
+      {!booked && (
         <form ref={formRef} onSubmit={onSubmit} className="flex flex-col gap-4 pt-8" noValidate>
           <span className="text-[12px] font-bold tracking-[0.18em] text-clay">
             04 · WHO’S PLAYING
           </span>
 
-          <div className="grid gap-3.5 sm:grid-cols-2">
+          <div className="flex flex-wrap items-center gap-2.5" role="radiogroup" aria-label="How you pay">
+            {(
+              [
+                { value: 'pay', label: 'Pay now' },
+                { value: 'pack', label: 'I have sessions' },
+              ] as const
+            ).map((m, i, all) => (
+              <button
+                key={m.value}
+                type="button"
+                role="radio"
+                aria-checked={mode === m.value}
+                tabIndex={mode === m.value ? 0 : -1}
+                onKeyDown={(e) => onStripKey(e, i, all.length, (n) => switchMode(all[n].value))}
+                onClick={() => switchMode(m.value)}
+                className={pill}
+              >
+                <span className={pillText}>{m.label}</span>
+              </button>
+            ))}
+          </div>
+
+          {mode === 'pay' ? (
+            <>
+              <div className="grid gap-3.5 sm:grid-cols-2">
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[13px] text-[#5C6159]">Name</span>
+                  <input name="name" required autoComplete="name" className={field} placeholder="Asha Mollel" />
+                </label>
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[13px] text-[#5C6159]">Mobile money number</span>
+                  <input
+                    name="phone"
+                    required
+                    type="tel"
+                    inputMode="tel"
+                    autoComplete="tel"
+                    className={field}
+                    placeholder="0712 345 678"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                  />
+                </label>
+              </div>
+
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[13px] text-[#5C6159]">
+                  Email <span className="opacity-70">— optional, for your confirmation</span>
+                </span>
+                <input
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  className={field}
+                  placeholder="you@example.com"
+                />
+              </label>
+            </>
+          ) : (
             <label className="flex flex-col gap-1.5">
-              <span className="text-[13px] text-[#5C6159]">Name</span>
-              <input name="name" required autoComplete="name" className={field} placeholder="Asha Mollel" />
-            </label>
-            <label className="flex flex-col gap-1.5">
-              <span className="text-[13px] text-[#5C6159]">Phone</span>
+              <span className="text-[13px] text-[#5C6159]">The number you paid for your sessions with</span>
               <input
                 name="phone"
                 required
+                type="tel"
                 inputMode="tel"
                 autoComplete="tel"
                 className={field}
-                placeholder="0782 628 288"
+                placeholder="0712 345 678 or +255 712 345 678"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
               />
+              <MemberLine lookup={lookup} typed={phone.trim() !== ''} valid={member !== ''} />
             </label>
-          </div>
-
-          <label className="flex flex-col gap-1.5">
-            <span className="text-[13px] text-[#5C6159]">
-              Email <span className="opacity-70">— optional, for your confirmation</span>
-            </span>
-            <input
-              name="email"
-              type="email"
-              autoComplete="email"
-              className={field}
-              placeholder="you@example.com"
-            />
-          </label>
+          )}
 
           {error && (
             <p
@@ -460,75 +524,54 @@ export default function BookingWidget({
             <div className="flex flex-col gap-2 sm:items-end">
               <button
                 type="submit"
-                disabled={!picked || book.isPending}
+                disabled={!picked || book.isPending || (mode === 'pack' && !canSpend)}
                 className="self-start rounded-full bg-clay px-[38px] py-4 text-[16px] font-semibold text-white transition-transform hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100 sm:self-auto"
               >
-                {book.isPending ? 'Holding…' : 'Hold my court'}
+                {mode === 'pay'
+                  ? book.isPending
+                    ? 'Sending the prompt…'
+                    : `Pay TSh ${fmtTsh(price)}`
+                  : book.isPending
+                    ? 'Booking…'
+                    : 'Book with a session'}
               </button>
               <span className="text-[12.5px] text-[#5C6159]">
-                held 10 minutes while the coach confirms
+                {mode === 'pay'
+                  ? 'M-Pesa, Airtel Money, Mixx or Halotel — approve the prompt on your phone'
+                  : 'uses one session from your pack'}
               </span>
             </div>
           </div>
         </form>
       )}
 
-      {/*
-        Success. How a booking works is explained here rather than beside the
-        calendar: before choosing a time nobody reads it, and afterwards
-        everybody wants it.
-      */}
-      {held && (
+      {/* A member who booked with a session: confirmed on the spot. A payer
+          never sees this — they are on /pay, waiting for their prompt. */}
+      {booked && (
         <div className="mt-8 flex flex-col gap-6 rounded-[12px] border border-clay/30 bg-clay/10 p-7 md:p-9">
           <div className="flex flex-col gap-2.5">
-            <span className="text-[12px] font-bold tracking-[0.18em] text-clay">
-              {lapsed ? 'HOLD EXPIRED' : 'COURT HELD'}
-            </span>
-            <p className="font-display text-[30px] leading-[36px] text-[#13271D]">{held.when}</p>
+            <span className="text-[12px] font-bold tracking-[0.18em] text-clay">COURT BOOKED</span>
+            <p className="font-display text-[30px] leading-[36px] text-[#13271D]">{booked.when}</p>
             <p className="text-[14px] text-[#5C6159]">
-              Reference <span className="font-mono text-[#13271D]">{held.reference}</span>
+              Reference <span className="font-mono text-[#13271D]">{booked.reference}</span>
             </p>
           </div>
 
-          {/* The ten minutes, counting down, instead of a sentence claiming they exist. */}
-          {!lapsed && (
-            <div className="flex flex-col gap-1 border-t border-clay/25 pt-6">
-              <span className="font-display text-[34px] leading-[38px] text-clay">
-                {msLeft === null ? `${HOLD_MINUTES}:00` : mmss(msLeft)}
-              </span>
-              <span className="text-[14px] leading-[22px] text-[#3C3F38]">
-                left on your hold — nobody else can take this slot until then.
-              </span>
-            </div>
-          )}
-
-          {lapsed ? (
-            <p className="border-t border-clay/25 pt-6 text-[15px] leading-[25px] text-[#3C3F38]">
-              Nobody confirmed in time, so the slot has gone back on sale. Check your booking
-              below — if the coach confirmed it just in time, it is still yours.
-            </p>
-          ) : (
-            <ol className="flex flex-col gap-4 border-t border-clay/25 pt-6">
-              {[
-                'The coach has been messaged already, and will confirm with you directly.',
-                'Pay at the court, in cash or on mobile money. No card needed to reserve.',
-                'Keep the link below — it is the only way back to this booking.',
-              ].map((body, i) => (
-                <li key={i} className="flex gap-4">
-                  <span className="w-[26px] shrink-0 font-display text-[20px] italic text-clay">
-                    {['i', 'ii', 'iii'][i]}
-                  </span>
-                  <span className="text-[15px] leading-[25px] text-[#3C3F38]">{body}</span>
-                </li>
-              ))}
-            </ol>
-          )}
+          <p className="border-t border-clay/25 pt-6 text-[15px] leading-[25px] text-[#3C3F38]">
+            One session used —{' '}
+            <strong>
+              {booked.left === 0
+                ? 'that was your last one'
+                : `${booked.left} session${booked.left === 1 ? '' : 's'} left`}
+            </strong>
+            . Cancel from the link below before it starts and the session comes back to you.
+          </p>
 
           <div className="flex flex-wrap items-center gap-3">
             {/* The only route back to a booking: there are no accounts, so the
                 id in this link is what proves it is theirs. */}
             <Link
-              href={`/book/${held.id}`}
+              href={`/book/${booked.id}`}
               className="rounded-full bg-clay px-[26px] py-[11px] text-[15px] font-semibold text-white transition-transform hover:scale-[1.03]"
             >
               View or cancel this booking
@@ -544,5 +587,58 @@ export default function BookingWidget({
         </div>
       )}
     </div>
+  );
+}
+
+
+/**
+ * What the lookup found, under the number field — the line a member reads to
+ * know whether they can book with a session.
+ */
+function MemberLine({
+  lookup,
+  typed,
+  valid,
+}: {
+  lookup: { data?: MemberSessions; isFetching: boolean; isError: boolean };
+  typed: boolean;
+  valid: boolean;
+}) {
+  const base = 'text-[13.5px] leading-[21px]';
+  if (!valid) {
+    return (
+      <span className={`${base} text-[#5C6159]`}>
+        {typed
+          ? 'Keep going — 07…, 7…, or +255… all work.'
+          : 'We’ll look up how many sessions you have left.'}
+      </span>
+    );
+  }
+  if (lookup.isError) {
+    return <span className={`${base} text-[#9C4225]`}>Could not look that up. Try again.</span>;
+  }
+  const found = lookup.data;
+  if (!found) return <span className={`${base} text-[#5C6159]`}>Looking you up…</span>;
+  if (!found.found || found.bought === 0) {
+    return (
+      <span className={`${base} text-[#9C4225]`}>
+        We can’t find sessions on that number. Choose “Pay now”, or become a member from the home
+        page.
+      </span>
+    );
+  }
+  if (found.left === 0) {
+    return (
+      <span className={`${base} text-[#9C4225]`}>
+        Hi {found.firstName} — you’ve used all {found.bought} sessions. Choose “Pay now” for this
+        one, or top up from the home page.
+      </span>
+    );
+  }
+  return (
+    <span className={`${base} font-semibold text-[#13271D]`}>
+      Hi {found.firstName} — you have {found.left} of {found.bought} session
+      {found.bought === 1 ? '' : 's'} left.
+    </span>
   );
 }

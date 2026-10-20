@@ -8,6 +8,7 @@ import { publish } from '@/lib/realtime';
 import { refreshAttempt } from '@/lib/settle';
 import { normalisePhone } from '@/lib/roster';
 import { addDays, isValidDate, nowLocal } from '@/lib/time';
+import { withAxiom } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,7 +32,7 @@ export const dynamic = 'force-dynamic';
  * has asked Snippe), the page is sent to that payment and re-pushes it
  * rather than firing a second charge.
  */
-export async function POST(request: Request) {
+export const POST = withAxiom(async function POST(request: Request) {
   let body: Record<string, unknown>;
   try {
     body = await request.json();
@@ -89,7 +90,7 @@ export async function POST(request: Request) {
     console.error('trial signup failed:', err);
     return json({ error: 'Something went wrong our end. Please try again.' }, 500);
   }
-}
+});
 
 type Parsed = {
   name: string;

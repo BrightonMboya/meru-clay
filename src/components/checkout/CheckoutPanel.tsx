@@ -78,7 +78,9 @@ export default function CheckoutPanel({ id }: { id: string }) {
               ? 'Your trial session is booked. We will WhatsApp you today with your time and court.'
               : payment.purpose === 'class'
                 ? 'Your class place is paid. See you on court.'
-                : 'Your membership is up to date. Thank you.'}
+                : payment.purpose === 'pack'
+                  ? 'Your sessions are on your account. Book a court with the number you paid from — choose “I have sessions”.'
+                  : 'Your membership is up to date. Thank you.'}
         </p>
         <div className="flex flex-wrap items-center gap-3">
           {payment.bookingId && (
@@ -148,10 +150,13 @@ export default function CheckoutPanel({ id }: { id: string }) {
       <PayByPhone id={id} payment={payment} />
 
       <div className="flex flex-col gap-3 border-t border-clay/25 pt-6">
-        <p className="text-[15px] leading-[25px] text-[#3C3F38]">
-          Rather pay at the court? Cash and mobile money are both fine — quote reference{' '}
-          <span className="font-mono text-[#13271D]">{payment.reference}</span>.
-        </p>
+        {/* Not for a court: its hold lapses in minutes, long before the gate. */}
+        {payment.purpose !== 'booking' && (
+          <p className="text-[15px] leading-[25px] text-[#3C3F38]">
+            Rather pay at the court? Cash and mobile money are both fine — quote reference{' '}
+            <span className="font-mono text-[#13271D]">{payment.reference}</span>.
+          </p>
+        )}
         <a href={whatsapp} target="_blank" rel="noopener" className={secondary}>
           WhatsApp the club
         </a>
