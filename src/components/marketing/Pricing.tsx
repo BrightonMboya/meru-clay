@@ -76,12 +76,7 @@ export default function Pricing() {
                 <span className="text-[34px] font-bold leading-[42px] tracking-[0.01em] text-cream">
                   {pack.total}
                 </span>
-                <span className="flex flex-col gap-0.5">
-                  <span className="text-[15px] font-semibold text-cream">{pack.save}</span>
-                  <span className="font-display text-[13px] italic text-[#FBE6DE]">
-                    vs {fmtTsh(COURT_HIRE[60])} a session
-                  </span>
-                </span>
+                <span className="text-[15px] font-semibold text-cream">{pack.save}</span>
                 <JoinDialog sessions={pack.sessions}>
                   <button
                     type="button"
