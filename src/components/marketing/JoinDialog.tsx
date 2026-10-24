@@ -3,15 +3,17 @@
 import { useRouter } from 'next/navigation';
 import { Dialog } from 'radix-ui';
 import { useState } from 'react';
-import { SESSION_PACKS, fmtTsh } from '@/lib/pricing';
+import { MEMBERSHIP_TIERS, SESSION_PACKS, fmtTsh } from '@/lib/pricing';
 import { statusOf } from '@/lib/queries/http';
 import { resendPrompt, startPayment } from '@/lib/queries/payments';
 
 /**
  * The membership form, in a modal.
  *
- * Membership is a pack of sessions paid for up front, so this is a checkout:
- * name, number, a pack, then the mobile money prompt. The same two calls the
+ * Membership is a pack of sessions paid for up front, or the Kids membership
+ * — a month of group classes — so this is a checkout: name, number, a plan,
+ * then the mobile money prompt. Kids is a parent signing a child up, so the
+ * fields say whose name and whose number. The same two calls the
  * trial form makes — `/api/join` opens the payment, the shared
  * `/api/payments/:id/pay` sends the prompt — and then /pay/<id> takes over,
  * which already knows how to wait for a handset and say what happened.
@@ -29,10 +31,13 @@ import { resendPrompt, startPayment } from '@/lib/queries/payments';
 export default function JoinDialog({
   children,
   sessions: initialSessions = 8,
+  kids: initialKids = false,
 }: {
   children: React.ReactNode;
   /** The pack the form opens on — the one whose button was pressed. */
   sessions?: number;
+  /** Open on the Kids membership instead of a pack. */
+  kids?: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -40,17 +45,20 @@ export default function JoinDialog({
   const [phone, setPhone] = useState('');
   const [withKid, setWithKid] = useState(false);
   const [sessions, setSessions] = useState<number>(initialSessions);
+  const [kids, setKids] = useState(initialKids);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const ready = name.trim().length >= 2 && phone.trim().length > 0;
   const pack = SESSION_PACKS.find((p) => p.sessions === sessions) ?? SESSION_PACKS[1];
+  const fee = kids ? MEMBERSHIP_TIERS.kids.fee : pack.fee;
 
   function reset() {
     setName('');
     setPhone('');
     setWithKid(false);
     setSessions(initialSessions);
+    setKids(initialKids);
     setError(null);
   }
 
@@ -71,7 +79,11 @@ export default function JoinDialog({
       const res = await fetch('/api/join', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), phone: phone.trim(), withKid, sessions }),
+        body: JSON.stringify(
+          kids
+            ? { name: name.trim(), phone: phone.trim(), plan: 'kids' }
+            : { name: name.trim(), phone: phone.trim(), withKid, sessions },
+        ),
       });
       const body = await res.json().catch(() => null);
       if (!res.ok || !body?.id) {
@@ -120,12 +132,12 @@ export default function JoinDialog({
               Become a member
             </Dialog.Title>
             <Dialog.Description className="pt-3 text-[15px] leading-[23px] text-pine/70">
-              Pick a pack of sessions and pay by mobile money. Then book courts online with your
-              number — no cash at the gate.
+              Pick a pack of sessions, or Kids for unlimited group classes, and pay by mobile
+              money — no cash at the gate.
             </Dialog.Description>
 
             <div className="flex flex-col gap-5 pt-7">
-              <Field label="Full name">
+              <Field label={kids ? "Child's full name" : 'Full name'}>
                 <input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -136,7 +148,10 @@ export default function JoinDialog({
                 />
               </Field>
 
-              <Field label="Mobile money number" hint="Your number to book with">
+              <Field
+                label={kids ? "Parent's mobile money number" : 'Mobile money number'}
+                hint={kids ? 'We message you about classes' : 'Your number to book with'}
+              >
                 <input
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
@@ -149,11 +164,15 @@ export default function JoinDialog({
                 />
               </Field>
 
-              <Field label="Sessions">
+              <Field label="Membership">
                 <div className="relative">
                   <select
-                    value={sessions}
-                    onChange={(e) => setSessions(Number(e.target.value))}
+                    value={kids ? 'kids' : sessions}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setKids(v === 'kids');
+                      if (v !== 'kids') setSessions(Number(v));
+                    }}
                     className={`${inputClass} cursor-pointer appearance-none pr-11`}
                   >
                     {SESSION_PACKS.map((p) => (
@@ -161,6 +180,9 @@ export default function JoinDialog({
                         {p.label} — TSh {fmtTsh(p.fee)}
                       </option>
                     ))}
+                    <option value="kids">
+                      Kids, unlimited group classes — TSh {fmtTsh(MEMBERSHIP_TIERS.kids.fee)} a month
+                    </option>
                   </select>
                   <svg
                     viewBox="0 0 16 16"
@@ -179,15 +201,17 @@ export default function JoinDialog({
                 </div>
               </Field>
 
-              <label className="flex cursor-pointer items-center gap-3 text-[15px] text-pine">
-                <input
-                  type="checkbox"
-                  checked={withKid}
-                  onChange={(e) => setWithKid(e.target.checked)}
-                  className="h-[18px] w-[18px] shrink-0 cursor-pointer rounded border-pine/30 accent-clay"
-                />
-                I&apos;ll be coming with a child
-              </label>
+              {!kids && (
+                <label className="flex cursor-pointer items-center gap-3 text-[15px] text-pine">
+                  <input
+                    type="checkbox"
+                    checked={withKid}
+                    onChange={(e) => setWithKid(e.target.checked)}
+                    className="h-[18px] w-[18px] shrink-0 cursor-pointer rounded border-pine/30 accent-clay"
+                  />
+                  I&apos;ll be coming with a child
+                </label>
+              )}
             </div>
 
             {error ? (
@@ -204,7 +228,7 @@ export default function JoinDialog({
               disabled={!ready || sending}
               className="mt-7 rounded-full bg-clay px-[30px] py-4 text-[15px] font-semibold text-white transition-transform hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:scale-100"
             >
-              {sending ? 'Sending the prompt…' : `Pay TSh ${fmtTsh(pack.fee)}`}
+              {sending ? 'Sending the prompt…' : `Pay TSh ${fmtTsh(fee)}`}
             </button>
           </form>
 

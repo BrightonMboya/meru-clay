@@ -50,6 +50,7 @@
 import { courtName } from './availability';
 import type { Booking } from './bookings';
 import { fmtRange } from './time';
+import type { Reserved } from './trial';
 
 export type NotifyEnv = {
   /**
@@ -329,35 +330,48 @@ export async function notifyPack(env: NotifyEnv, e: PackSale): Promise<void> {
 }
 
 /**
- * A paid trial, off the ads. Somebody has paid and is coming on the day they
- * picked; the club's half is to message them a time. Same rules as
+ * A paid trial, off the ads. Somebody has paid and is coming at the time they
+ * picked, which is on a court with the coach now — or, when `court` says it
+ * could not be, the club's half is to find them another. Same rules as
  * `notifyPack`: never throws, silent while BOOKING_TO_EMAIL is unset.
  */
 export async function notifyTrial(
   env: NotifyEnv,
-  t: { id: string; name: string; phone: string; amount: number; day: string; campaign: string | null },
+  t: {
+    id: string;
+    name: string;
+    phone: string;
+    amount: number;
+    day: string;
+    court: Reserved;
+    campaign: string | null;
+  },
 ): Promise<void> {
   if (!env.BOOKING_TO_EMAIL) return;
 
   const lines: Array<[string, string]> = [
     ['Name', t.name],
     ['Phone', t.phone],
-    ['Coming', t.day],
+    ['Coming', t.court.when ? `${t.day}, ${t.court.when}` : t.day],
+    ['Court', t.court.ok ? `${t.court.court}, with the coach` : 'Not booked'],
     ['Paid', `TSh ${t.amount.toLocaleString('en-US')}`],
     ['Ad', t.campaign ?? '—'],
     ['Reference', t.id.slice(0, 8)],
   ];
+  const next = t.court.ok
+    ? 'They are on the leads board, in Trial booked, and the court is on the desk.'
+    : `They are on the leads board, in Trial booked. ${t.court.reason}`;
 
   try {
     await deliver(env, {
       to: env.BOOKING_TO_EMAIL,
-      subject: `Paid trial — ${t.name}, ${t.day}`,
+      subject: `Paid trial — ${t.name}, ${t.day}${t.court.when ? ` ${t.court.when.split('–')[0]}` : ''}`,
       text: [
         'Somebody paid for a trial session.',
         '',
         ...lines.map(([k, v]) => `${k}: ${v}`),
         '',
-        'They are on the leads board, in Trial booked. Message them a time.',
+        next,
       ].join('\n'),
       html: [
         '<p><strong>Somebody paid for a trial session.</strong></p>',
@@ -367,7 +381,7 @@ export async function notifyTrial(
             `<tr><td style="color:#5F6B62;padding-right:18px">${k}</td><td><strong>${escapeHtml(v)}</strong></td></tr>`,
         ),
         '</table>',
-        '<p>They are on the leads board, in Trial booked. Message them a time.</p>',
+        `<p>${escapeHtml(next)}</p>`,
       ].join(''),
     });
   } catch (err) {

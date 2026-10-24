@@ -139,6 +139,8 @@ export type CreateInput = {
    * session — or is refused with 'no-sessions' if they have none left.
    */
   packPlayerId?: number;
+  /** Priced elsewhere — a paid trial's money is on its own payment. */
+  amount?: number;
 };
 
 export type CreateResult =
@@ -213,7 +215,9 @@ export async function createBooking(input: CreateInput, now: number): Promise<Cr
           confirmedAt: confirmed ? at : null,
           paid: Boolean(input.paid) || packId !== null,
           // A session from a pack was paid for when the pack was.
-          amount: packId !== null ? 0 : totalFor(input.duration as Duration, Boolean(input.coach)),
+          amount:
+            input.amount ??
+            (packId !== null ? 0 : totalFor(input.duration as Duration, Boolean(input.coach))),
           packId,
           createdAt: at,
         })

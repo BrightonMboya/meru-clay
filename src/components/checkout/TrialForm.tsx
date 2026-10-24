@@ -1,18 +1,30 @@
 'use client';
 
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { trackOnce } from '@/lib/pixel';
+import { availability } from '@/lib/queries/bookings';
 import { getJson, statusOf } from '@/lib/queries/http';
 import { resendPrompt, startPayment } from '@/lib/queries/payments';
-import { fmtDayLabel, fmtLongDay } from '@/lib/time';
+import { fmtDayLabel, fmtLongDay, fmtTime24 } from '@/lib/time';
 
 /** The ad's own tags, carried onto the lead so the board can say which ad paid. */
 const TRACKED = ['utm_source', 'utm_campaign', 'fbclid'] as const;
 
 /**
- * Name, number, day — then the USSD prompt.
+ * A trial is an hour — see TRIAL_MINUTES in src/lib/trial.ts. Asked as a
+ * court-only hour: the coach is always there for a trial, so only the courts
+ * decide which times are free.
+ */
+const SESSION = { duration: 60, coach: false } as const;
+
+/**
+ * Name, number, day and time — then the USSD prompt.
+ *
+ * The times are /book's: the same availability query, so a time offered
+ * here is one with a court free. Which court is the club's business, so the
+ * courts are folded into one row of start times.
  *
  * Two calls in a row: `/api/trial` writes the lead and opens the payment,
  * then the shared `/api/payments/:id/pay` sends the prompt. Once it is out,
@@ -27,6 +39,8 @@ const TRACKED = ['utm_source', 'utm_campaign', 'fbclid'] as const;
 export default function TrialForm({ days, fee }: { days: string[]; fee: number }) {
   const router = useRouter();
   const [date, setDate] = useState('');
+  const [start, setStart] = useState<number | null>(null);
+  const queryClient = useQueryClient();
   const tags = useRef<Record<string, string>>({});
 
   useEffect(() => {
@@ -38,7 +52,7 @@ export default function TrialForm({ days, fee }: { days: string[]; fee: number }
   }, []);
 
   const book = useMutation({
-    mutationFn: async (input: { name: string; phone: string; date: string }) => {
+    mutationFn: async (input: { name: string; phone: string; date: string; start: number }) => {
       const opened = await getJson<{ ok: true; id: string; status: string }>('/api/trial', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -72,15 +86,30 @@ export default function TrialForm({ days, fee }: { days: string[]; fee: number }
       return opened.id;
     },
     onSuccess: (id) => router.push(`/pay/${id}`),
+    onError: (err) => {
+      // Somebody took the time while they were typing: show what is left.
+      if (statusOf(err) === 409) {
+        setStart(null);
+        void queryClient.invalidateQueries({ queryKey: ['availability'] });
+      }
+    },
   });
+
+  const slots = useQuery(availability.options({ date, ...SESSION }));
+  /** One button per start time, whichever court has it. */
+  const starts = slots.data
+    ? [...new Set(slots.data.slots.map((s) => s.start))].sort((a, b) => a - b)
+    : null;
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (start === null) return;
     const form = new FormData(e.currentTarget);
     book.mutate({
       name: String(form.get('name') ?? ''),
       phone: String(form.get('phone') ?? ''),
       date,
+      start,
     });
   }
 
@@ -102,7 +131,11 @@ export default function TrialForm({ days, fee }: { days: string[]; fee: number }
               <button
                 key={d}
                 type="button"
-                onClick={() => setDate(d)}
+                onClick={() => {
+                  setDate(d);
+                  setStart(null);
+                  book.reset();
+                }}
                 aria-pressed={on}
                 aria-label={fmtLongDay(d)}
                 className={`flex w-[62px] shrink-0 flex-col items-center gap-0.5 rounded-[10px] border py-2.5 transition-colors ${
@@ -121,6 +154,43 @@ export default function TrialForm({ days, fee }: { days: string[]; fee: number }
           })}
         </div>
       </fieldset>
+
+      {date && (
+        <fieldset className="flex min-w-0 flex-col gap-3">
+          <legend className="pb-3 text-[13px] text-[#5C6159]">What time? Sessions run an hour.</legend>
+          <div className="flex flex-wrap gap-2" aria-live="polite">
+            {slots.isError ? (
+              <p className="py-2 text-[15px] text-[#9C4225]">Could not load times. Please refresh.</p>
+            ) : starts === null ? (
+              <p className="py-2 text-[15px] text-[#67716A]">Loading times…</p>
+            ) : starts.length === 0 ? (
+              <p className="py-2 text-[15px] text-[#67716A]">Nothing free that day. Try another.</p>
+            ) : (
+              starts.map((t) => {
+                const on = t === start;
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => {
+                      setStart(t);
+                      book.reset();
+                    }}
+                    aria-pressed={on}
+                    className={`w-[86px] rounded-[9px] border py-[11px] text-center text-[16px] font-semibold transition-colors ${
+                      on
+                        ? 'border-clay bg-clay text-white'
+                        : 'border-pine/[0.18] bg-white text-[#13271D] hover:border-clay'
+                    }`}
+                  >
+                    {fmtTime24(t)}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </fieldset>
+      )}
 
       <label className="flex flex-col gap-2">
         <span className="text-[13px] text-[#5C6159]">Your name</span>
@@ -145,7 +215,7 @@ export default function TrialForm({ days, fee }: { days: string[]; fee: number }
           className="rounded-[9px] border border-pine/[0.18] bg-white px-4 py-3 text-[16px] text-[#13271D] outline-none placeholder:text-[#9AA39B] focus:border-clay"
         />
         <span className="text-[12.5px] text-[#5C6159]">
-          The payment prompt goes here, and so does our WhatsApp with your time.
+          The payment prompt goes here, and so does our WhatsApp confirming your session.
         </span>
       </label>
 
@@ -160,14 +230,16 @@ export default function TrialForm({ days, fee }: { days: string[]; fee: number }
 
       <button
         type="submit"
-        disabled={busy || !date}
+        disabled={busy || !date || start === null}
         className="rounded-full bg-clay px-[38px] py-4 text-[16px] font-semibold text-white transition-transform hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100 sm:self-start"
       >
         {busy
           ? 'Sending the prompt…'
-          : date
-            ? `Pay TSh ${fee.toLocaleString('en-US')} for ${fmtLongDay(date)}`
-            : 'Pick a day above'}
+          : date && start !== null
+            ? `Pay TSh ${fee.toLocaleString('en-US')} for ${fmtLongDay(date)}, ${fmtTime24(start)}`
+            : date
+              ? 'Pick a time above'
+              : 'Pick a day above'}
       </button>
     </form>
   );

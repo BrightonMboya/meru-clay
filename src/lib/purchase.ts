@@ -28,7 +28,7 @@ import { getLead } from './leads';
 import { getPlayer } from './players';
 import type { Payment } from './payments';
 import { MEMBERSHIP_TIERS, fmtTsh, lapses, packOf, type MembershipTier } from './pricing';
-import { fmtLongDay, fmtRange } from './time';
+import { fmtLongDay, fmtRange, fmtTime24 } from './time';
 
 /** One thing the club is charging for, ready to be paid or displayed. */
 export type Purchase = {
@@ -189,7 +189,8 @@ export async function describePayment(p: Payment): Promise<{ title: string; deta
   }
 
   if (p.purpose === 'trial' && p.sessionDate) {
-    return { title: 'Trial session', detail: fmtLongDay(p.sessionDate) };
+    const at = p.sessionStart !== null ? `, ${fmtTime24(p.sessionStart)}` : '';
+    return { title: 'Trial session', detail: `${fmtLongDay(p.sessionDate)}${at}` };
   }
 
   if (p.purpose === 'pack' && p.sessions) {

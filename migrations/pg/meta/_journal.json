@@ -113,6 +113,20 @@
       "when": 1792483252582,
       "tag": "0015_session_packs",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1792827663096,
+      "tag": "0016_trial_start",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1792828721490,
+      "tag": "0017_kids_membership",
+      "breakpoints": true
     }
   ]
 }

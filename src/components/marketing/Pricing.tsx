@@ -1,5 +1,5 @@
 import JoinDialog from '@/components/marketing/JoinDialog';
-import { COURT_HIRE, SESSION_PACKS, fmtTsh } from '@/lib/pricing';
+import { COURT_HIRE, MEMBERSHIP_TIERS, SESSION_PACKS, fmtTsh } from '@/lib/pricing';
 
 /**
  * Pay as you go, for everyone. The same two prices whatever the age, so one
@@ -94,7 +94,33 @@ export default function Pricing() {
           </div>
         </div>
 
-        {/* 02 Pay as you go */}
+        {/* 02 Kids — a monthly membership, not a pack */}
+        <div className="mt-6 flex flex-col gap-6 rounded-[10px] border border-clay/30 bg-clay/10 px-[30px] py-[26px] md:flex-row md:items-center md:gap-11">
+          <div className="flex shrink-0 flex-col gap-1.5 md:basis-[230px]">
+            <span className="text-[11px] font-bold tracking-[0.18em] text-clay">KIDS</span>
+            <span className="font-display text-[26px] font-medium italic leading-[32px] text-[#1B1C18]">
+              Unlimited group classes
+            </span>
+          </div>
+          <div className="flex flex-1 flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <span className="flex items-baseline gap-2">
+              <span className="text-[30px] font-bold leading-[38px] text-[#1B1C18]">
+                {fmtTsh(MEMBERSHIP_TIERS.kids.fee)}
+              </span>
+              <span className="font-display text-[15px] italic text-[#7E8C84]">a month</span>
+            </span>
+            <JoinDialog kids>
+              <button
+                type="button"
+                className="self-start rounded-full bg-clay px-[22px] py-2.5 text-[14px] font-semibold text-white transition-transform hover:scale-[1.03] sm:self-auto"
+              >
+                Choose
+              </button>
+            </JoinDialog>
+          </div>
+        </div>
+
+        {/* 03 Pay as you go */}
         <div className="mt-6 flex flex-col gap-6 rounded-[10px] border border-pine/10 bg-[#FBF8F1] px-[30px] py-[26px] md:flex-row md:items-center md:gap-11">
           <div className="flex shrink-0 flex-col gap-1.5 md:basis-[230px]">
             <span className="text-[11px] font-bold tracking-[0.18em] text-clay">

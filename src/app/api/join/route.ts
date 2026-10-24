@@ -1,8 +1,9 @@
 import { LINK_HOURS } from '@/lib/checkout';
 import { createLead, leadByPhone } from '@/lib/leads';
+import { joiningLink, renewalLink } from '@/lib/paylink';
 import { createPayment, openPackFor } from '@/lib/payments';
 import { playerByPhone } from '@/lib/players';
-import { packOf, type PackSize } from '@/lib/pricing';
+import { MEMBERSHIP_TIERS, packOf, type PackSize } from '@/lib/pricing';
 import { emailFor } from '@/lib/purchase';
 import { publish } from '@/lib/realtime';
 import { normalisePhone } from '@/lib/roster';
@@ -14,7 +15,8 @@ export const dynamic = 'force-dynamic';
 /**
  * POST /api/join — the membership form on the homepage.
  *
- * Membership is a pack of sessions paid up front (`SESSION_PACKS`), so this
+ * Membership is a pack of sessions paid up front (`SESSION_PACKS`), or the
+ * Kids membership — a month of group classes, the `kids` tier — so this
  * opens a payment and nothing more — the same shape as /api/trial. The page
  * then sends the USSD prompt through the shared `/api/payments/:id/pay` and
  * moves to /pay/<id>. When the money lands, `fulfil` puts them on the roster
@@ -48,6 +50,8 @@ export const POST = withAxiom(async function POST(request: Request) {
   if ('error' in input) return json({ error: input.error }, 400);
 
   try {
+    if (input.plan === 'kids') return await joinKids(input);
+
     const pack = packOf(input.sessions)!;
     const player = await playerByPhone(input.phone);
 
@@ -105,12 +109,69 @@ export const POST = withAxiom(async function POST(request: Request) {
   }
 });
 
-type Parsed = {
-  name: string;
-  phone: string;
-  sessions: PackSize;
-  note: string;
-};
+/**
+ * The Kids membership. A monthly tier rather than a pack, so it goes through
+ * the same payment links the desk sends — `joiningLink` for a newcomer,
+ * which puts them on the roster on `kids` once paid, and `renewalLink` for a
+ * child already on it. Both reuse an open payment for the same money rather
+ * than minting a second.
+ *
+ * The roster has one member per number, so a number already on it under
+ * another membership cannot become a child's as well; the desk sorts that
+ * out by hand.
+ */
+async function joinKids(input: Parsed): Promise<Response> {
+  const player = await playerByPhone(input.phone);
+
+  let result;
+  if (player) {
+    if (player.membership !== 'kids') {
+      return json(
+        {
+          error:
+            'That number is already a member. WhatsApp us on +255 782 628 288 and we will add your child.',
+        },
+        409,
+      );
+    }
+    result = await renewalLink(player.id, false);
+  } else {
+    let lead = await leadByPhone(input.phone);
+    if (!lead) {
+      lead =
+        (await createLead({
+          name: input.name,
+          phone: input.phone,
+          source: 'other',
+          campaign: 'Website membership form',
+          note: input.note,
+        })) ?? (await leadByPhone(input.phone));
+      if (!lead) throw new Error(`lead for ${input.phone} neither created nor found`);
+      await publish(null);
+    }
+    result = await joiningLink(lead.id, 'kids', false);
+  }
+
+  if (!result.ok) {
+    log.warn('membership.kids_refused', { error: result.error });
+    return json({ error: 'We could not open that payment. WhatsApp us and we will help.' }, 409);
+  }
+
+  // A reused payment may have a prompt that has since been answered.
+  const payment = await refreshAttempt(result.payment);
+  log.info('membership.checkout_opened', {
+    paymentId: payment.id,
+    tier: 'kids',
+    amount: payment.amount,
+    topUp: player !== null,
+  });
+  return json({ ok: true, id: payment.id, status: payment.status }, 201);
+}
+
+type Parsed = { name: string; phone: string; note: string } & (
+  | { plan: 'pack'; sessions: PackSize }
+  | { plan: 'kids' }
+);
 
 /**
  * Validate what the form sent.
@@ -125,6 +186,11 @@ function read(body: Record<string, unknown>): Parsed | { error: string } {
   const phone = normalisePhone(String(body.phone ?? ''));
   if (phone === null) return { error: 'That phone number does not look right.' };
   if (!phone) return { error: 'We need your mobile money number.' };
+
+  if (body.plan === 'kids') {
+    const note = `Membership from the website. Chose ${MEMBERSHIP_TIERS.kids.label} (TSh ${MEMBERSHIP_TIERS.kids.fee.toLocaleString('en-US')} a month).`;
+    return { name, phone, plan: 'kids', note };
+  }
 
   const pack = packOf(Number(body.sessions));
   if (!pack) return { error: 'Choose how many sessions.' };
@@ -141,7 +207,7 @@ function read(body: Record<string, unknown>): Parsed | { error: string } {
     .filter(Boolean)
     .join(' ');
 
-  return { name, phone, sessions: pack.sessions, note };
+  return { name, phone, plan: 'pack', sessions: pack.sessions, note };
 }
 
 function json(body: unknown, status = 200) {

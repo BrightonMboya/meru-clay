@@ -40,6 +40,7 @@ import { log } from './log';
 import { getLead } from './leads';
 import { getBooking } from './bookings';
 import { notifyBooking, notifyEnv, notifyPack, notifyPaymentProblem, notifyTrial } from './notify';
+import { reserveTrial } from './trial';
 import {
   attachProviderRef,
   getPayment,
@@ -368,6 +369,10 @@ async function settleOnce(
     // the call that actually fulfilled it, so a redelivery stays quiet.
     if (done.outcome === 'fulfilled' && done.payment.purpose === 'trial') {
       const p = done.payment;
+      // Paid, so now it takes its court and the coach. Done here rather
+      // than in `fulfil`: a court taken meanwhile is the desk's to sort out,
+      // not a reason to leave the money unfulfilled.
+      const court = await reserveTrial(p);
       const lead = p.leadId !== null ? await getLead(p.leadId).catch(() => null) : null;
       await notifyTrial(notifyEnv(), {
         id: p.id,
@@ -375,6 +380,7 @@ async function settleOnce(
         phone: p.phone,
         amount: p.amount,
         day: p.sessionDate ? fmtLongDay(p.sessionDate) : '—',
+        court,
         campaign: lead?.campaign ?? null,
       });
     }

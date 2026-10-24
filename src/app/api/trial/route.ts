@@ -1,6 +1,7 @@
 import { LINK_HOURS } from '@/lib/checkout';
 import { createLead, leadByPhone } from '@/lib/leads';
-import { createPayment, openTrialFor, setSessionDate } from '@/lib/payments';
+import { isValidStart } from '@/lib/availability';
+import { createPayment, openTrialFor, setSession } from '@/lib/payments';
 import type { LeadSource } from '@/lib/pipeline';
 import { TRIAL_FEE, TRIAL_WINDOW_DAYS } from '@/lib/pricing';
 import { emailFor } from '@/lib/purchase';
@@ -8,7 +9,8 @@ import { publish } from '@/lib/realtime';
 import { refreshAttempt } from '@/lib/settle';
 import { normalisePhone } from '@/lib/roster';
 import { closedOn } from '@/lib/schedule';
-import { addDays, isValidDate, nowLocal, weekdayOf } from '@/lib/time';
+import { addDays, fmtTime24, isValidDate, nowLocal, weekdayOf } from '@/lib/time';
+import { TRIAL_MINUTES, trialStartFree } from '@/lib/trial';
 import { withAxiom } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
@@ -28,7 +30,7 @@ export const dynamic = 'force-dynamic';
  *
  * ── Twice ────────────────────────────────────────────────────────────────
  * One live lead per number (`uniq_lead_phone`), and one open trial per lead.
- * Filling the form in again moves the open trial to the new day rather than
+ * Filling the form in again moves the open trial to the new time rather than
  * opening a second; if a prompt is genuinely still out (`refreshAttempt`
  * has asked Snippe), the page is sent to that payment and re-pushes it
  * rather than firing a second charge.
@@ -44,6 +46,17 @@ export const POST = withAxiom(async function POST(request: Request) {
   const input = read(body);
   if ('error' in input) return json({ error: input.error }, 400);
 
+  // Advisory, like /book's grid: the court is only taken once they have paid.
+  // But a time already gone is refused here rather than sold.
+  try {
+    if (!(await trialStartFree(input.date, input.start))) {
+      return json({ error: 'That time has just been taken. Pick another.' }, 409);
+    }
+  } catch (err) {
+    console.error('trial availability failed:', err);
+    return json({ error: 'Something went wrong our end. Please try again.' }, 500);
+  }
+
   try {
     let lead = await leadByPhone(input.phone);
     if (!lead) {
@@ -53,7 +66,7 @@ export const POST = withAxiom(async function POST(request: Request) {
           phone: input.phone,
           source: input.source,
           campaign: input.campaign,
-          note: `Paid trial form. Asked for ${input.date}.`,
+          note: `Paid trial form. Asked for ${input.date} at ${fmtTime24(input.start)}.`,
         })) ??
         // Lost the race to a second tap; the winner's row is the lead.
         (await leadByPhone(input.phone));
@@ -69,9 +82,10 @@ export const POST = withAxiom(async function POST(request: Request) {
     if (open?.status === 'successful') return json({ ok: true, id: open.id, status: open.status });
     if (open && (open.status === 'pending' || open.status === 'failed' || open.status === 'processing')) {
       const moved =
-        open.status === 'processing' || open.sessionDate === input.date
+        open.status === 'processing' ||
+        (open.sessionDate === input.date && open.sessionStart === input.start)
           ? open
-          : await setSessionDate(open.id, input.date);
+          : await setSession(open.id, input.date, input.start);
       if (moved) return json({ ok: true, id: moved.id, status: moved.status });
     }
 
@@ -80,6 +94,7 @@ export const POST = withAxiom(async function POST(request: Request) {
       amount: TRIAL_FEE,
       leadId: lead.id,
       sessionDate: input.date,
+      sessionStart: input.start,
       name: input.name,
       phone: input.phone,
       email: emailFor(null, String(lead.id)),
@@ -97,6 +112,8 @@ type Parsed = {
   name: string;
   phone: string;
   date: string;
+  /** Minutes from local midnight. */
+  start: number;
   source: LeadSource;
   campaign: string;
 };
@@ -116,10 +133,14 @@ function read(body: Record<string, unknown>): Parsed | { error: string } {
   }
   if (closedOn(weekdayOf(date))) return { error: 'The courts are closed that day. Pick another.' };
 
+  const start = Number(body.start);
+  if (!isValidStart(start, TRIAL_MINUTES)) return { error: 'Pick a time for your session.' };
+
   return {
     name,
     phone,
     date,
+    start,
     source: sourceOf(body),
     campaign: clip(body.utm_campaign) || 'Trial session landing page',
   };

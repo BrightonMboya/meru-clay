@@ -508,6 +508,11 @@ export const payments = pgTable(
      * can pay for a second trial and the first one's day must not move.
      */
     sessionDate: date('session_date', { mode: 'string' }),
+    /**
+     * A trial: the start time they picked, minutes from local midnight. Null
+     * on trials taken before the form asked for a time.
+     */
+    sessionStart: integer('session_start'),
     /** A session pack: how many sessions it credits. See `SESSION_PACKS`. */
     sessions: integer('sessions'),
 

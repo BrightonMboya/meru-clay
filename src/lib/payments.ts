@@ -56,6 +56,8 @@ export type Payment = {
   tier: MembershipTier | null;
   /** A trial's day, YYYY-MM-DD. Null for everything else. */
   sessionDate: string | null;
+  /** A trial's start, minutes from local midnight. Null for everything else. */
+  sessionStart: number | null;
   /** How many sessions a pack credits. Null for everything else. */
   sessions: number | null;
   name: string;
@@ -96,6 +98,7 @@ function toPayment(r: PaymentRecord): Payment {
     enrolmentId: r.enrolmentId,
     tier: r.tier,
     sessionDate: r.sessionDate,
+    sessionStart: r.sessionStart,
     sessions: r.sessions,
     name: r.name,
     phone: r.phone,
@@ -128,6 +131,7 @@ export type NewPaymentInput = {
   enrolmentId?: number;
   tier?: MembershipTier;
   sessionDate?: string;
+  sessionStart?: number;
   sessions?: number;
   method?: PaymentMethod;
   /** When the link stops working. See `LINK_HOURS`. */
@@ -159,6 +163,7 @@ export async function createPayment(input: NewPaymentInput): Promise<Payment> {
       enrolmentId: input.enrolmentId ?? null,
       tier: input.tier ?? null,
       sessionDate: input.sessionDate ?? null,
+      sessionStart: input.sessionStart ?? null,
       sessions: input.sessions ?? null,
       expiresAt: input.expiresAt,
     })
@@ -460,18 +465,22 @@ export async function recordEvent(e: {
 }
 
 /**
- * Move an unpaid trial to another day.
+ * Move an unpaid trial to another day or time.
  *
  * For somebody who fills the /trial form in twice — changed their mind about
  * Saturday — so the second submission reuses the first payment rather than
  * leaving a dead one on Takings. Only an unpaid one moves: a processing
- * payment has a prompt out for the day it was quoted, and a paid one is a
+ * payment has a prompt out for the time it was quoted, and a paid one is a
  * promise the club has made.
  */
-export async function setSessionDate(id: string, sessionDate: string): Promise<Payment | null> {
+export async function setSession(
+  id: string,
+  sessionDate: string,
+  sessionStart: number,
+): Promise<Payment | null> {
   const [row] = await db
     .update(paymentsTable)
-    .set({ sessionDate })
+    .set({ sessionDate, sessionStart })
     .where(and(eq(paymentsTable.id, id), inArray(paymentsTable.status, ['pending', 'failed'])))
     .returning();
 

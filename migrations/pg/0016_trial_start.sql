@@ -1,0 +1,1 @@
+ALTER TABLE "payments" ADD COLUMN "session_start" integer;

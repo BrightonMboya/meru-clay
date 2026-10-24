@@ -353,14 +353,15 @@ async function applyClass(
 /**
  * A trial session, paid for off the ads.
  *
- * There is nothing to reserve — the day is on the payment, and the coach
- * fits them in — so fulfilling it is moving the lead along the board to
- * TRIAL BOOKED, which is where the desk looks for who is coming. Only
+ * Fulfilling it is moving the lead along the board to TRIAL BOOKED, which
+ * is where the desk looks for who is coming. The court is taken afterwards,
+ * by `reserveTrial` in settle — a time lost meanwhile is for the desk to
+ * fix, not a reason to leave money unfulfilled. Only
  * forwards: a lead already further on (came to a trial before, joined) is
  * left where they are rather than walked back.
  *
  * A lead deleted since paying is not a reason to refuse. The money and the
- * day are both on the payment row, which is what the desk works from.
+ * time are both on the payment row, which is what the desk works from.
  */
 async function applyTrial(tx: Tx, leadId: number): Promise<Applied> {
   await tx

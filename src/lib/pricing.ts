@@ -68,6 +68,17 @@ export const MEMBERSHIP_TIERS = {
     months: 3,
     detail: 'Three months · two free coached hits',
   },
+  /**
+   * Sold on the website alongside the session packs. A child on the roster
+   * under a parent's number; what it buys — every group class — is honoured
+   * at the desk, not counted anywhere.
+   */
+  kids: {
+    label: 'Kids',
+    fee: 80_000,
+    months: 1,
+    detail: 'Unlimited group classes · rolls over',
+  },
   payg: {
     label: 'Pay as you play',
     fee: 0,
@@ -87,7 +98,7 @@ export const MEMBERSHIP_TIERS = {
   },
 } as const;
 
-export const MEMBERSHIPS = ['monthly', 'term', 'payg', 'pack'] as const;
+export const MEMBERSHIPS = ['monthly', 'term', 'kids', 'payg', 'pack'] as const;
 export type MembershipTier = (typeof MEMBERSHIPS)[number];
 
 export function isMembership(value: unknown): value is MembershipTier {

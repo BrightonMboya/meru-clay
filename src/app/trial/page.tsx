@@ -18,7 +18,7 @@ export const metadata: Metadata = {
 /**
  * The paid trial — where the ads land.
  *
- * One screen, one job: name, number, a day, and a USSD prompt. Everything a
+ * One screen, one job: name, number, a day and time, and a USSD prompt. Everything a
  * visitor off Instagram needs to decide is above the form on a phone, and
  * nothing links away from it except the club's WhatsApp.
  *
@@ -73,11 +73,11 @@ export default function TrialPage() {
               TRIAL SESSION · TSH {fmtTsh(TRIAL_FEE)}
             </span>
             <h1 className="pt-4 font-display text-[44px] font-medium leading-[0.98] tracking-[-0.025em] text-cream md:text-[60px]">
-              Your first hour on <span className="italic text-clay-light">clay</span>.
+              Book your first <span className="italic text-clay-light">tennis</span> session.
             </h1>
             <p className="max-w-[52ch] pt-5 text-[17px] leading-[28px] text-mist">
-              Pick a day, book your spot, and show up on court. Need a different day later? Just
-              let us know.
+              Pick a day and a time, book your spot, and show up on court. Need a different time
+              later? Just let us know.
             </p>
           </div>
         </section>
@@ -96,7 +96,7 @@ export default function TrialPage() {
             </li>
             <li>
               <strong className="text-[#13271D]">Need to move it?</strong> WhatsApp us and we will
-              find you another day.
+              find you another time.
             </li>
           </ul>
 
