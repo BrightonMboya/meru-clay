@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
+import { captureOnce } from '@/lib/analytics';
 import { trackOnce } from '@/lib/pixel';
 import { availability } from '@/lib/queries/bookings';
 import { getJson, statusOf } from '@/lib/queries/http';
@@ -61,6 +62,7 @@ export default function TrialForm({ days, fee }: { days: string[]; fee: number }
       // A Lead the moment there is somebody to follow up: name, number, a
       // day, and a payment waiting. Once per payment, so pressing the button
       // again after a declined prompt is not a second lead.
+      captureOnce(opened.id, 'trial_submitted', { value: fee, currency: 'TZS' });
       trackOnce(
         opened.id,
         'Lead',

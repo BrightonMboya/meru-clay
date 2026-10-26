@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { captureOnce } from '@/lib/analytics';
 import { trackOnce } from '@/lib/pixel';
 import { myPayment, resendPrompt, startPayment, type PaymentView } from '@/lib/queries/payments';
 
@@ -334,6 +335,17 @@ function AwaitingPin({ id }: { id: string }) {
 function usePurchaseEvent(payment: PaymentView | undefined) {
   useEffect(() => {
     if (!payment) return;
+    // PostHog counts every payment seen through, however it was paid — a
+    // link from the desk too. Only the Meta Purchase below is limited to
+    // payments this browser started.
+    if (payment.done) {
+      captureOnce(payment.id, 'payment_succeeded', {
+        value: payment.amount,
+        currency: payment.currency,
+        purpose: payment.purpose,
+        title: payment.title,
+      });
+    }
     const seen = `px:owed:${payment.id}`;
     if (!payment.done) {
       if (payment.pending) {

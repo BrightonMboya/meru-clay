@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
+import { capture } from '@/lib/analytics';
 import type { Slot } from '@/lib/availability';
 import { fmtTsh, totalFor } from '@/lib/pricing';
 import { normalisePhone } from '@/lib/roster';
@@ -169,6 +170,7 @@ export default function BookingWidget({
       return created;
     },
     onSuccess: (payload: CreatedBooking) => {
+      capture('booking_confirmed', { paid_with: payload.paymentId ? 'payment' : 'session' });
       // The slot this player just took is gone for everyone.
       void queryClient.invalidateQueries({ queryKey: ['availability'] });
       if (payload.paymentId) {
@@ -184,6 +186,7 @@ export default function BookingWidget({
       void queryClient.invalidateQueries({ queryKey: ['member-sessions'] });
     },
     onError: (err) => {
+      capture('booking_failed', { status: statusOf(err), mode });
       const fresh = slotsFromError(err);
       if (statusOf(err) === 409 && fresh) {
         // The server hands back what is still free, so the grid refreshes
@@ -203,6 +206,8 @@ export default function BookingWidget({
     }
 
     setError('');
+    // The "how many pressed pay" number, sessions or money.
+    capture('booking_submitted', { mode, duration, coach, value: mode === 'pay' ? price : 0, currency: 'TZS' });
     const data = Object.fromEntries(new FormData(e.currentTarget)) as {
       name?: string;
       email?: string;
@@ -222,6 +227,7 @@ export default function BookingWidget({
   }
 
   function switchMode(next: 'pay' | 'pack') {
+    if (next !== mode) capture('booking_mode_chosen', { mode: next });
     setMode(next);
     setError('');
   }
@@ -398,6 +404,7 @@ export default function BookingWidget({
                         onClick={() => {
                           setPicked(s);
                           setError('');
+                          capture('booking_slot_picked', { court: s.court, date, duration, coach });
                         }}
                         className="w-[106px] rounded-[9px] border border-pine/[0.18] px-0 py-[11px] text-center text-[16px] font-semibold text-[#13271D] transition-colors aria-checked:border-clay aria-checked:bg-clay aria-checked:text-white"
                       >
