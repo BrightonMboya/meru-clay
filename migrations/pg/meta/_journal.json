@@ -127,6 +127,13 @@
       "when": 1792828721490,
       "tag": "0017_kids_membership",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793377843059,
+      "tag": "0018_free_trials",
+      "breakpoints": true
     }
   ]
 }

@@ -3,24 +3,26 @@ import Image from 'next/image';
 import Link from 'next/link';
 import TrialForm from '@/components/checkout/TrialForm';
 import Footer from '@/components/marketing/Footer';
-import { TRIAL_FEE, TRIAL_WINDOW_DAYS, fmtTsh } from '@/lib/pricing';
+import { TRIAL_WINDOW_DAYS } from '@/lib/pricing';
 import { closedOn } from '@/lib/schedule';
 import { addDays, nowLocal, weekdayOf } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Try tennis on clay — Meru Clay, Arusha',
-  description: `Book a coached trial session at Meru Clay, Tanzania's first true clay court. TSh ${fmtTsh(TRIAL_FEE)}, paid by mobile money.`,
+  title: 'Your first tennis session, free — Meru Clay, Arusha',
+  description:
+    "Book a free, coached trial session for you or your child at Meru Clay, Tanzania's first true clay court.",
   alternates: { canonical: '/trial' },
 };
 
 /**
- * The paid trial — where the ads land.
+ * The free trial — where the ads land.
  *
- * One screen, one job: name, number, a day and time, and a USSD prompt. Everything a
- * visitor off Instagram needs to decide is above the form on a phone, and
- * nothing links away from it except the club's WhatsApp.
+ * One screen, one job: who is coming, a day and a time, and the parent's
+ * WhatsApp number. Free, because a paid trial lost nearly everybody at the
+ * payment prompt; the lead is what the ad is for. Nothing links away from it
+ * except the club's WhatsApp.
  *
  * The days are computed here rather than in the browser, so the strip agrees
  * with what `/api/trial` will accept: tomorrow through `TRIAL_WINDOW_DAYS`,
@@ -70,20 +72,20 @@ export default function TrialPage() {
 
           <div className="relative z-10 mx-auto flex w-full max-w-[720px] flex-col px-6 pb-12 pt-16 md:px-10 md:pb-16 md:pt-24">
             <span className="text-[12px] font-bold tracking-[0.18em] text-clay-light">
-              TRIAL SESSION · TSH {fmtTsh(TRIAL_FEE)}
+              FREE TRIAL SESSION · KIDS &amp; ADULTS
             </span>
             <h1 className="pt-4 font-display text-[44px] font-medium leading-[0.98] tracking-[-0.025em] text-cream md:text-[60px]">
-              Book your first <span className="italic text-clay-light">tennis</span> session.
+              Your first <span className="italic text-clay-light">tennis</span> session, on us.
             </h1>
             <p className="max-w-[52ch] pt-5 text-[17px] leading-[28px] text-mist">
-              Pick a day and a time, book your spot, and show up on court. Need a different time
-              later? Just let us know.
+              An hour on clay with our coach. Pick a day and a time, tell us
+              who is playing, and we will WhatsApp you to confirm. Nothing to pay.
             </p>
           </div>
         </section>
 
         <div className="mx-auto flex w-full max-w-[720px] flex-col px-6 pb-24 pt-10 md:px-10">
-          <TrialForm days={days} fee={TRIAL_FEE} />
+          <TrialForm days={days} />
 
           <ul className="flex flex-col gap-3 pt-10 text-[15px] leading-[25px] text-[#3C3F38]">
             <li>
@@ -91,8 +93,8 @@ export default function TrialPage() {
               Ngaramtoni — Arusha.
             </li>
             <li>
-              <strong className="text-[#13271D]">How you pay.</strong> M-Pesa, Airtel Money, Mixx
-              by Yas or Halotel. A prompt comes to your phone; enter your PIN to approve.
+              <strong className="text-[#13271D]">What it costs.</strong> Nothing. The first session
+              is free, and there is no card or mobile money to enter.
             </li>
             <li>
               <strong className="text-[#13271D]">Need to move it?</strong> WhatsApp us and we will

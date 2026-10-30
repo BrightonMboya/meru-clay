@@ -1,39 +1,38 @@
-import { LINK_HOURS } from '@/lib/checkout';
-import { createLead, leadByPhone } from '@/lib/leads';
+import { after } from 'next/server';
 import { isValidStart } from '@/lib/availability';
-import { createPayment, openTrialFor, setSession } from '@/lib/payments';
-import type { LeadSource } from '@/lib/pipeline';
-import { TRIAL_FEE, TRIAL_WINDOW_DAYS } from '@/lib/pricing';
-import { emailFor } from '@/lib/purchase';
+import { createLead, leadByPhone, setStage } from '@/lib/leads';
+import { notifyEnv, notifyFreeTrial } from '@/lib/notify';
+import {
+  CHILD_AGES,
+  TRIAL_LEVELS,
+  TRIAL_LEVEL_LABELS,
+  type LeadSource,
+  type TrialLevel,
+  type TrialPlayer,
+} from '@/lib/pipeline';
+import { TRIAL_WINDOW_DAYS } from '@/lib/pricing';
 import { publish } from '@/lib/realtime';
-import { refreshAttempt } from '@/lib/settle';
 import { normalisePhone } from '@/lib/roster';
 import { closedOn } from '@/lib/schedule';
-import { addDays, fmtTime24, isValidDate, nowLocal, weekdayOf } from '@/lib/time';
-import { TRIAL_MINUTES, trialStartFree } from '@/lib/trial';
+import { addDays, fmtLongDay, fmtTime24, isValidDate, nowLocal, weekdayOf } from '@/lib/time';
+import { TRIAL_MINUTES, TRIALS_PER_NUMBER, bookFreeTrial, trialStartFree } from '@/lib/trial';
 import { withAxiom } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * POST /api/trial — somebody off an ad asks for a paid trial session.
+ * POST /api/trial — somebody off an ad books a free trial session.
  *
- * Writes the lead and opens the payment, and nothing else. The USSD push is
- * the page's next call, to `POST /api/payments/:id/pay` — the same route
- * every other payment link uses — so there is one charging path in the app
- * and this file never learns how money moves.
- *
- * The response is the payment id, which is also its /pay link. Handing it to
- * whoever typed the number is the same bargain `/api/bookings` makes: the
- * person on the form is the one who will pay, and the worst a stranger can
- * do with somebody else's number is send them a USSD prompt they decline.
+ * Free, so there is nothing to wait for: the lead is written, the trial
+ * takes its court there and then, and the club is emailed who is coming.
+ * Most are a parent booking a child, so the form asks for the child's name,
+ * age and anything the coach should know, and the parent is the lead — the
+ * number the club WhatsApps.
  *
  * ── Twice ────────────────────────────────────────────────────────────────
- * One live lead per number (`uniq_lead_phone`), and one open trial per lead.
- * Filling the form in again moves the open trial to the new time rather than
- * opening a second; if a prompt is genuinely still out (`refreshAttempt`
- * has asked Snippe), the page is sent to that payment and re-pushes it
- * rather than firing a second charge.
+ * One live lead per number (`uniq_lead_phone`). The same form sent twice is
+ * the same trial (`bookFreeTrial` finds it); a second child from the same
+ * parent is a second trial, up to `TRIALS_PER_NUMBER` still to come.
  */
 export const POST = withAxiom(async function POST(request: Request) {
   let body: Record<string, unknown>;
@@ -46,18 +45,11 @@ export const POST = withAxiom(async function POST(request: Request) {
   const input = read(body);
   if ('error' in input) return json({ error: input.error }, 400);
 
-  // Advisory, like /book's grid: the court is only taken once they have paid.
-  // But a time already gone is refused here rather than sold.
   try {
     if (!(await trialStartFree(input.date, input.start))) {
       return json({ error: 'That time has just been taken. Pick another.' }, 409);
     }
-  } catch (err) {
-    console.error('trial availability failed:', err);
-    return json({ error: 'Something went wrong our end. Please try again.' }, 500);
-  }
 
-  try {
     let lead = await leadByPhone(input.phone);
     if (!lead) {
       lead =
@@ -66,65 +58,98 @@ export const POST = withAxiom(async function POST(request: Request) {
           phone: input.phone,
           source: input.source,
           campaign: input.campaign,
-          note: `Paid trial form. Asked for ${input.date} at ${fmtTime24(input.start)}.`,
+          note:
+            input.player === 'child'
+              ? `Free kids trial form, for ${input.childName} (${input.childAge}).`
+              : 'Free trial form.',
         })) ??
         // Lost the race to a second tap; the winner's row is the lead.
         (await leadByPhone(input.phone));
       if (!lead) throw new Error(`lead for ${input.phone} neither created nor found`);
-      await publish(null);
     }
 
-    // A 'processing' trial may be an attempt Snippe gave up on days ago;
-    // ask before deciding there is a prompt out.
-    const found = await openTrialFor(lead.id);
-    const open = found ? await refreshAttempt(found) : null;
-    // Asking may reveal it was approved after all; that is their trial, paid.
-    if (open?.status === 'successful') return json({ ok: true, id: open.id, status: open.status });
-    if (open && (open.status === 'pending' || open.status === 'failed' || open.status === 'processing')) {
-      const moved =
-        open.status === 'processing' ||
-        (open.sessionDate === input.date && open.sessionStart === input.start)
-          ? open
-          : await setSession(open.id, input.date, input.start);
-      if (moved) return json({ ok: true, id: moved.id, status: moved.status });
+    const booked = await bookFreeTrial({ leadId: lead.id, ...input });
+    if (!booked.ok) {
+      return booked.reason === 'taken'
+        ? json({ error: 'That time has just been taken. Pick another.' }, 409)
+        : json(
+            {
+              error: `You already have ${TRIALS_PER_NUMBER} sessions booked. WhatsApp us to add another.`,
+            },
+            429,
+          );
     }
 
-    const payment = await createPayment({
-      purpose: 'trial',
-      amount: TRIAL_FEE,
-      leadId: lead.id,
-      sessionDate: input.date,
-      sessionStart: input.start,
-      name: input.name,
-      phone: input.phone,
-      email: emailFor(null, String(lead.id)),
-      expiresAt: new Date(Date.now() + LINK_HOURS * 3_600_000),
-    });
+    if (!booked.repeat) {
+      if (lead.stage === 'new' || lead.stage === 'contacted') await setStage(lead.id, 'trial_booked');
+      const campaign = lead.campaign;
+      after(async () => {
+        await publish(lead.id).catch(() => {});
+        await notifyFreeTrial(notifyEnv(), {
+          name: input.name,
+          phone: input.phone,
+          day: fmtLongDay(input.date),
+          when: `${fmtTime24(input.start)}–${fmtTime24(input.start + TRIAL_MINUTES)}`,
+          court: booked.court,
+          child:
+            input.player === 'child' ? { name: input.childName!, age: input.childAge! } : null,
+          level: TRIAL_LEVEL_LABELS[input.level],
+          notes: input.notes,
+          campaign,
+        });
+      });
+    }
 
-    return json({ ok: true, id: payment.id, status: payment.status }, 201);
+    return json({ ok: true, id: booked.trial.id }, booked.repeat ? 200 : 201);
   } catch (err) {
-    console.error('trial signup failed:', err);
+    console.error('trial booking failed:', err);
     return json({ error: 'Something went wrong our end. Please try again.' }, 500);
   }
 });
 
 type Parsed = {
+  /** The grown-up: the parent when the trial is for a child. */
   name: string;
   phone: string;
   date: string;
   /** Minutes from local midnight. */
   start: number;
+  player: TrialPlayer;
+  childName: string | null;
+  childAge: number | null;
+  level: TrialLevel;
+  notes: string | null;
   source: LeadSource;
   campaign: string;
 };
 
 function read(body: Record<string, unknown>): Parsed | { error: string } {
+  const player: TrialPlayer = body.player === 'adult' ? 'adult' : 'child';
+
+  let childName: string | null = null;
+  let childAge: number | null = null;
+  if (player === 'child') {
+    childName = String(body.childName ?? '').trim();
+    if (childName.length < 2 || childName.length > 80) return { error: "Please enter your child's name." };
+    childAge = Number(body.childAge);
+    if (!Number.isInteger(childAge) || childAge < CHILD_AGES.min || childAge > CHILD_AGES.max) {
+      return { error: `Kids sessions are for ages ${CHILD_AGES.min} to ${CHILD_AGES.max}.` };
+    }
+  }
+
   const name = String(body.name ?? '').trim();
-  if (name.length < 2 || name.length > 80) return { error: 'Please enter your full name.' };
+  if (name.length < 2 || name.length > 80) {
+    return { error: player === 'child' ? 'Please enter your own name.' : 'Please enter your full name.' };
+  }
 
   const phone = normalisePhone(String(body.phone ?? ''));
   if (phone === null) return { error: 'That phone number does not look right.' };
-  if (!phone) return { error: 'We need your mobile money number.' };
+  if (!phone) return { error: 'We need your WhatsApp number.' };
+
+  const level = String(body.level ?? 'never');
+  if (!(TRIAL_LEVELS as readonly string[]).includes(level)) return { error: 'Pick how much they have played.' };
+
+  const notes = clip(body.notes, 500) || null;
 
   const date = String(body.date ?? '');
   const today = nowLocal().date;
@@ -141,6 +166,11 @@ function read(body: Record<string, unknown>): Parsed | { error: string } {
     phone,
     date,
     start,
+    player,
+    childName,
+    childAge,
+    level: level as TrialLevel,
+    notes,
     source: sourceOf(body),
     campaign: clip(body.utm_campaign) || 'Trial session landing page',
   };
@@ -159,8 +189,8 @@ function sourceOf(body: Record<string, unknown>): LeadSource {
   return 'other';
 }
 
-function clip(v: unknown): string {
-  return typeof v === 'string' ? v.trim().slice(0, 120) : '';
+function clip(v: unknown, max = 120): string {
+  return typeof v === 'string' ? v.trim().slice(0, max) : '';
 }
 
 function json(body: unknown, status = 200) {

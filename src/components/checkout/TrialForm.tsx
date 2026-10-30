@@ -1,13 +1,18 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { captureOnce } from '@/lib/analytics';
 import { trackOnce } from '@/lib/pixel';
 import { availability } from '@/lib/queries/bookings';
+import {
+  CHILD_AGES,
+  TRIAL_LEVELS,
+  TRIAL_LEVEL_LABELS,
+  type TrialLevel,
+  type TrialPlayer,
+} from '@/lib/pipeline';
 import { getJson, statusOf } from '@/lib/queries/http';
-import { resendPrompt, startPayment } from '@/lib/queries/payments';
 import { fmtDayLabel, fmtLongDay, fmtTime24 } from '@/lib/time';
 
 /** The ad's own tags, carried onto the lead so the board can say which ad paid. */
@@ -20,29 +25,39 @@ const TRACKED = ['utm_source', 'utm_campaign', 'fbclid'] as const;
  */
 const SESSION = { duration: 60, coach: false } as const;
 
+const AGES = Array.from(
+  { length: CHILD_AGES.max - CHILD_AGES.min + 1 },
+  (_, i) => CHILD_AGES.min + i,
+);
+
+const field =
+  'rounded-[9px] border border-pine/[0.18] bg-white px-4 py-3 text-[16px] text-[#13271D] outline-none placeholder:text-[#9AA39B] focus:border-clay';
+
+type Booked = { id: number; who: string; date: string; start: number };
+
 /**
- * Name, number, day and time — then the USSD prompt.
+ * Who, day and time — and that is it: the trial is free, so there is no
+ * payment step to lose people on.
+ *
+ * Most bookings are a parent booking a child, so that is the default, and it
+ * asks for the child's name, age and anything the coach should know. The
+ * grown-up's name and WhatsApp number are the lead either way.
  *
  * The times are /book's: the same availability query, so a time offered
  * here is one with a court free. Which court is the club's business, so the
- * courts are folded into one row of start times.
- *
- * Two calls in a row: `/api/trial` writes the lead and opens the payment,
- * then the shared `/api/payments/:id/pay` sends the prompt. Once it is out,
- * the visitor is moved to /pay/<id>, which already knows how to wait for a
- * handset, poll, and say what happened — this form does not reimplement it.
- *
- * A refusal Snippe could account for (a number on no network, say) stays
- * here so they can fix the number and press again; the second press reuses
- * the same payment. Anything else — a prompt already out, an answer that
- * never came back — goes to /pay, which has the wording for both.
+ * courts are folded into one row of start times. `/api/trial` takes the
+ * court there and then; on success the form turns into the confirmation,
+ * with a way to book a brother or sister.
  */
-export default function TrialForm({ days, fee }: { days: string[]; fee: number }) {
-  const router = useRouter();
+export default function TrialForm({ days }: { days: string[] }) {
+  const [player, setPlayer] = useState<TrialPlayer>('child');
   const [date, setDate] = useState('');
   const [start, setStart] = useState<number | null>(null);
+  const [level, setLevel] = useState<TrialLevel>('never');
+  const [booked, setBooked] = useState<Booked | null>(null);
   const queryClient = useQueryClient();
   const tags = useRef<Record<string, string>>({});
+  const form = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
@@ -53,41 +68,25 @@ export default function TrialForm({ days, fee }: { days: string[]; fee: number }
   }, []);
 
   const book = useMutation({
-    mutationFn: async (input: { name: string; phone: string; date: string; start: number }) => {
-      const opened = await getJson<{ ok: true; id: string; status: string }>('/api/trial', {
+    mutationFn: (input: Record<string, unknown>) =>
+      getJson<{ ok: true; id: number }>('/api/trial', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ...input, ...tags.current }),
+      }),
+    onSuccess: ({ id }, input) => {
+      // A Lead the moment a session is booked. Once per trial, so a reload
+      // of the same form is not a second lead.
+      captureOnce(`trial-${id}`, 'trial_submitted', { player });
+      trackOnce(`trial-${id}`, 'Lead', { content_name: 'Free trial session' }, `lead-trial-${id}`);
+      setBooked({
+        id,
+        who: player === 'child' ? String(input.childName) : 'You',
+        date,
+        start: start!,
       });
-      // A Lead the moment there is somebody to follow up: name, number, a
-      // day, and a payment waiting. Once per payment, so pressing the button
-      // again after a declined prompt is not a second lead.
-      captureOnce(opened.id, 'trial_submitted', { value: fee, currency: 'TZS' });
-      trackOnce(
-        opened.id,
-        'Lead',
-        { content_name: 'Trial session', value: fee, currency: 'TZS' },
-        `lead-${opened.id}`,
-      );
-      if (opened.status === 'successful') return opened.id;
-      if (opened.status === 'processing') {
-        // Snippe says the last prompt is still live, but they filled the form
-        // in again because it is not on their phone: push the same one again.
-        // Best effort — /pay has the button if this does not land.
-        await resendPrompt(opened.id).catch(() => {});
-        return opened.id;
-      }
-
-      try {
-        await startPayment(opened.id, input.phone);
-      } catch (err) {
-        const s = statusOf(err);
-        if (s === 409 || s === 502) return opened.id;
-        throw err;
-      }
-      return opened.id;
+      void queryClient.invalidateQueries({ queryKey: ['availability'] });
     },
-    onSuccess: (id) => router.push(`/pay/${id}`),
     onError: (err) => {
       // Somebody took the time while they were typing: show what is left.
       if (statusOf(err) === 409) {
@@ -106,23 +105,93 @@ export default function TrialForm({ days, fee }: { days: string[]; fee: number }
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (start === null) return;
-    const form = new FormData(e.currentTarget);
+    const f = new FormData(e.currentTarget);
     book.mutate({
-      name: String(form.get('name') ?? ''),
-      phone: String(form.get('phone') ?? ''),
+      player,
+      childName: String(f.get('childName') ?? ''),
+      childAge: Number(f.get('childAge')),
+      name: String(f.get('name') ?? ''),
+      phone: String(f.get('phone') ?? ''),
+      level,
+      notes: String(f.get('notes') ?? ''),
       date,
       start,
     });
   }
 
-  const busy = book.isPending || book.isSuccess;
+  /** Same parent, another child: keep their name and number, clear the rest. */
+  function another() {
+    setBooked(null);
+    setDate('');
+    setStart(null);
+    setLevel('never');
+    book.reset();
+    const f = form.current;
+    if (!f) return;
+    for (const n of ['childName', 'notes']) {
+      const el = f.elements.namedItem(n);
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) el.value = '';
+    }
+    f.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  if (booked) {
+    return (
+      <div className="flex flex-col gap-4 rounded-[12px] border border-clay/30 bg-clay/10 p-6 md:p-9" role="status">
+        <span className="text-[12px] font-bold tracking-[0.18em] text-clay">YOU ARE BOOKED</span>
+        <p className="font-display text-[30px] leading-[1.1] text-[#13271D]">
+          {booked.who === 'You' ? 'See you' : `See ${booked.who}`} on {fmtLongDay(booked.date)} at{' '}
+          {fmtTime24(booked.start)}.
+        </p>
+        <p className="text-[15px] leading-[25px] text-[#3C3F38]">
+          The session is free and runs an hour with our coach. We will WhatsApp you to confirm.
+          Arrive ten minutes early in trainers and comfortable clothes, and bring water.
+        </p>
+        {player === 'child' && (
+          <button
+            type="button"
+            onClick={another}
+            className="self-start rounded-full border border-clay px-6 py-3 text-[15px] font-semibold text-clay transition-colors hover:bg-clay hover:text-white"
+          >
+            Book another child
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  const busy = book.isPending;
 
   return (
     <form
+      ref={form}
       onSubmit={onSubmit}
       noValidate
       className="flex flex-col gap-6 rounded-[12px] border border-clay/30 bg-clay/10 p-6 md:p-9"
     >
+      <fieldset className="flex min-w-0 flex-col gap-3">
+        <legend className="pb-3 text-[13px] text-[#5C6159]">Who is the session for?</legend>
+        <div className="flex gap-2">
+          {(
+            [
+              ['child', 'My child'],
+              ['adult', 'Me'],
+            ] as const
+          ).map(([v, label]) => (
+            <Chip
+              key={v}
+              on={player === v}
+              onClick={() => {
+                setPlayer(v);
+                book.reset();
+              }}
+            >
+              {label}
+            </Chip>
+          ))}
+        </div>
+      </fieldset>
+
       <fieldset className="flex min-w-0 flex-col gap-3">
         <legend className="pb-3 text-[13px] text-[#5C6159]">Which day suits you?</legend>
         <div className="-mx-6 flex gap-2 overflow-x-auto px-6 pb-1 md:-mx-9 md:px-9">
@@ -194,19 +263,50 @@ export default function TrialForm({ days, fee }: { days: string[]; fee: number }
         </fieldset>
       )}
 
+      {player === 'child' && (
+        <div className="grid grid-cols-[1fr_96px] gap-3">
+          <label className="flex min-w-0 flex-col gap-2">
+            <span className="text-[13px] text-[#5C6159]">Child&apos;s first name</span>
+            <input name="childName" required autoComplete="off" placeholder="Neema" className={field} />
+          </label>
+          <label className="flex flex-col gap-2">
+            <span className="text-[13px] text-[#5C6159]">Age</span>
+            <select name="childAge" required defaultValue="" className={field}>
+              <option value="" disabled>
+                –
+              </option>
+              {AGES.map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
+
+      <fieldset className="flex min-w-0 flex-col gap-3">
+        <legend className="pb-3 text-[13px] text-[#5C6159]">
+          {player === 'child' ? 'Have they played tennis before?' : 'Have you played tennis before?'}
+        </legend>
+        <div className="flex flex-wrap gap-2">
+          {TRIAL_LEVELS.map((l) => (
+            <Chip key={l} on={level === l} onClick={() => setLevel(l)}>
+              {TRIAL_LEVEL_LABELS[l]}
+            </Chip>
+          ))}
+        </div>
+      </fieldset>
+
       <label className="flex flex-col gap-2">
-        <span className="text-[13px] text-[#5C6159]">Your name</span>
-        <input
-          name="name"
-          required
-          autoComplete="name"
-          placeholder="Amina Mushi"
-          className="rounded-[9px] border border-pine/[0.18] bg-white px-4 py-3 text-[16px] text-[#13271D] outline-none placeholder:text-[#9AA39B] focus:border-clay"
-        />
+        <span className="text-[13px] text-[#5C6159]">
+          {player === 'child' ? 'Your name (parent or guardian)' : 'Your name'}
+        </span>
+        <input name="name" required autoComplete="name" placeholder="Amina Mushi" className={field} />
       </label>
 
       <label className="flex flex-col gap-2">
-        <span className="text-[13px] text-[#5C6159]">Mobile money number</span>
+        <span className="text-[13px] text-[#5C6159]">Your WhatsApp number</span>
         <input
           name="phone"
           required
@@ -214,11 +314,22 @@ export default function TrialForm({ days, fee }: { days: string[]; fee: number }
           inputMode="tel"
           autoComplete="tel"
           placeholder="0712 345 678"
-          className="rounded-[9px] border border-pine/[0.18] bg-white px-4 py-3 text-[16px] text-[#13271D] outline-none placeholder:text-[#9AA39B] focus:border-clay"
+          className={field}
         />
-        <span className="text-[12.5px] text-[#5C6159]">
-          The payment prompt goes here, and so does our WhatsApp confirming your session.
+        <span className="text-[12.5px] text-[#5C6159]">We will WhatsApp you here to confirm the session.</span>
+      </label>
+
+      <label className="flex flex-col gap-2">
+        <span className="text-[13px] text-[#5C6159]">
+          Anything the coach should know? <span className="text-[#9AA39B]">Optional</span>
         </span>
+        <textarea
+          name="notes"
+          rows={2}
+          maxLength={500}
+          placeholder={player === 'child' ? 'Allergies, asthma, a bit shy at first…' : 'Injuries, what you want to work on…'}
+          className={`${field} resize-none`}
+        />
       </label>
 
       {book.isError && (
@@ -236,13 +347,28 @@ export default function TrialForm({ days, fee }: { days: string[]; fee: number }
         className="rounded-full bg-clay px-[38px] py-4 text-[16px] font-semibold text-white transition-transform hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100 sm:self-start"
       >
         {busy
-          ? 'Sending the prompt…'
+          ? 'Booking…'
           : date && start !== null
-            ? `Pay TSh ${fee.toLocaleString('en-US')} for ${fmtLongDay(date)}, ${fmtTime24(start)}`
+            ? `Book free session — ${fmtLongDay(date)}, ${fmtTime24(start)}`
             : date
               ? 'Pick a time above'
               : 'Pick a day above'}
       </button>
     </form>
+  );
+}
+
+function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={on}
+      className={`rounded-[9px] border px-4 py-[11px] text-[15px] font-semibold transition-colors ${
+        on ? 'border-clay bg-clay text-white' : 'border-pine/[0.18] bg-white text-[#13271D] hover:border-clay'
+      }`}
+    >
+      {children}
+    </button>
   );
 }

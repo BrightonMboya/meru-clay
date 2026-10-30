@@ -31,13 +31,9 @@ export function totalFor(duration: Duration, withCoach: boolean): number {
 }
 
 /**
- * The paid trial session sold off the ads — /trial. One price, paid up front
- * by mobile money, which is what makes a booking from a stranger worth the
- * coach keeping a slot for.
+ * How far ahead somebody can pick their trial day, starting tomorrow. The
+ * trial off the ads — /trial — is free; see src/lib/trial.ts.
  */
-export const TRIAL_FEE = 15_000;
-
-/** How far ahead somebody can pick their trial day, starting tomorrow. */
 export const TRIAL_WINDOW_DAYS = 21;
 
 /** 30000 → "30,000". Plain grouping; the currency is stated once in the UI. */

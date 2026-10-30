@@ -76,6 +76,23 @@ export const SOURCE_LABELS: Record<LeadSource, string> = {
   other: 'Other',
 };
 
+/** Who a trial is for: most bookings off the ads are a parent booking a child. */
+export const TRIAL_PLAYERS = ['child', 'adult'] as const;
+export type TrialPlayer = (typeof TRIAL_PLAYERS)[number];
+
+/** How much tennis they have played — what the coach plans the hour from. */
+export const TRIAL_LEVELS = ['never', 'some', 'regular'] as const;
+export type TrialLevel = (typeof TRIAL_LEVELS)[number];
+
+export const TRIAL_LEVEL_LABELS: Record<TrialLevel, string> = {
+  never: 'Never played',
+  some: 'Played a little',
+  regular: 'Plays regularly',
+};
+
+/** The ages a child's trial is taken for. Older than this books as an adult. */
+export const CHILD_AGES = { min: 3, max: 17 } as const;
+
 export const MESSAGE_DIRECTIONS = ['in', 'out'] as const;
 export type MessageDirection = (typeof MESSAGE_DIRECTIONS)[number];
 

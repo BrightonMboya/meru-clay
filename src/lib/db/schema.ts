@@ -48,10 +48,14 @@ import {
   LEAD_STAGES,
   MESSAGE_DIRECTIONS,
   MESSAGE_STATUSES,
+  TRIAL_LEVELS,
+  TRIAL_PLAYERS,
   type LeadSource,
   type LeadStage,
   type MessageDirection,
   type MessageStatus,
+  type TrialLevel,
+  type TrialPlayer,
 } from '../pipeline';
 import {
   AVAILABILITIES,
@@ -714,6 +718,50 @@ export const sessionPacks = pgTable(
 );
 
 export type SessionPackRecord = typeof sessionPacks.$inferSelect;
+
+/**
+ * A free trial session, booked off the ads.
+ *
+ * The lead is the grown-up on the phone; this is the hour they booked and,
+ * when it is for a child, the child. Kept apart from `leads` because one
+ * parent can book two children, and apart from `bookings` because the court
+ * sheet has no business knowing a child's age or allergies. `booking_id` is
+ * the court it took — set at once, since a free trial is placed the moment
+ * it is booked.
+ */
+export const trials = pgTable(
+  'trials',
+  {
+    id: serial('id').primaryKey(),
+    leadId: integer('lead_id')
+      .notNull()
+      .references(() => leads.id),
+    bookingId: text('booking_id').references(() => bookings.id),
+    /** YYYY-MM-DD, local. */
+    date: date('date', { mode: 'string' }).notNull(),
+    /** Minutes from local midnight. */
+    startMin: integer('start_min').notNull(),
+    player: text('player').notNull().$type<TrialPlayer>(),
+    /** Set when `player` is 'child'. */
+    childName: text('child_name'),
+    childAge: integer('child_age'),
+    level: text('level').notNull().$type<TrialLevel>(),
+    /** Anything the coach should know: allergies, asthma, nerves. */
+    notes: text('notes'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('idx_trials_lead').on(t.leadId, t.date),
+    check('trials_player_check', sql.raw(`player in (${list(TRIAL_PLAYERS)})`)),
+    check('trials_level_check', sql.raw(`level in (${list(TRIAL_LEVELS)})`)),
+    check(
+      'trials_child_check',
+      sql`player <> 'child' or (child_name is not null and child_age is not null)`,
+    ),
+  ],
+);
+
+export type TrialRecord = typeof trials.$inferSelect;
 
 export type PaymentRecord = typeof payments.$inferSelect;
 export type NewPayment = typeof payments.$inferInsert;

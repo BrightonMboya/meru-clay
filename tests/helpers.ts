@@ -13,7 +13,7 @@ import { addDays, nowLocal, weekdayOf } from '@/lib/time';
 export async function reset() {
   await db.execute(sql`
     truncate table session_packs, payment_events, payments, attendance, class_enrolments,
-      bookings, blocks, lead_messages, leads, players restart identity cascade
+      trials, bookings, blocks, lead_messages, leads, players restart identity cascade
   `);
 }
 

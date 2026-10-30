@@ -390,6 +390,73 @@ export async function notifyTrial(
 }
 
 /**
+ * A free trial, off the ads. It is already on a court; the email is so the
+ * club knows who is coming — for a child, the child's name, age and whatever
+ * the parent said the coach should know — and can WhatsApp the parent to
+ * confirm. Same rules as `notifyTrial`: never throws, silent while
+ * BOOKING_TO_EMAIL is unset.
+ */
+export async function notifyFreeTrial(
+  env: NotifyEnv,
+  t: {
+    name: string;
+    phone: string;
+    day: string;
+    when: string;
+    court: string;
+    child: { name: string; age: number } | null;
+    level: string;
+    notes: string | null;
+    campaign: string | null;
+  },
+): Promise<void> {
+  if (!env.BOOKING_TO_EMAIL) return;
+
+  const lines: Array<[string, string]> = [
+    ...(t.child
+      ? ([
+          ['Child', `${t.child.name}, ${t.child.age}`],
+          ['Parent', t.name],
+        ] as Array<[string, string]>)
+      : ([['Name', t.name]] as Array<[string, string]>)),
+    ['Phone', t.phone],
+    ['Coming', `${t.day}, ${t.when}`],
+    ['Court', `${t.court}, with the coach`],
+    ['Tennis so far', t.level],
+    ['Notes', t.notes ?? '—'],
+    ['Ad', t.campaign ?? '—'],
+  ];
+  const who = t.child ? `${t.child.name} (${t.child.age})` : t.name;
+  const next = 'They are on the leads board, in Trial booked. WhatsApp them to confirm.';
+
+  try {
+    await deliver(env, {
+      to: env.BOOKING_TO_EMAIL,
+      subject: `Free trial — ${who}, ${t.day} ${t.when.split('–')[0]}`,
+      text: [
+        t.child ? 'A parent booked a free kids trial.' : 'Somebody booked a free trial.',
+        '',
+        ...lines.map(([k, v]) => `${k}: ${v}`),
+        '',
+        next,
+      ].join('\n'),
+      html: [
+        `<p><strong>${t.child ? 'A parent booked a free kids trial.' : 'Somebody booked a free trial.'}</strong></p>`,
+        '<table cellpadding="6" cellspacing="0" style="border-collapse:collapse;font:15px system-ui,sans-serif">',
+        ...lines.map(
+          ([k, v]) =>
+            `<tr><td style="color:#5F6B62;padding-right:18px">${k}</td><td><strong>${escapeHtml(v)}</strong></td></tr>`,
+        ),
+        '</table>',
+        `<p>${escapeHtml(next)}</p>`,
+      ].join(''),
+    });
+  } catch (err) {
+    console.error('notify free trial failed:', err);
+  }
+}
+
+/**
  * A player cancelled a court they had already paid for, from their own link.
  *
  * Nothing refunds them automatically, so this is how the club finds out the
