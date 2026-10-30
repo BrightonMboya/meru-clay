@@ -147,9 +147,16 @@ export type CreateResult =
   | { ok: true; booking: Booking }
   | { ok: false; reason: 'taken' | 'no-sessions' };
 
-/** Postgres unique-violation. A race got past the overlap check; the slot is gone. */
+/**
+ * Postgres unique-violation. A race got past the overlap check; the slot is
+ * gone. Drizzle wraps the driver's error ("Failed query: …") and keeps the
+ * original as `cause`, so both are looked at.
+ */
 function isUniqueViolation(err: unknown): boolean {
-  return typeof err === 'object' && err !== null && (err as { code?: string }).code === '23505';
+  for (let e = err; typeof e === 'object' && e !== null; e = (e as { cause?: unknown }).cause) {
+    if ((e as { code?: string }).code === '23505') return true;
+  }
+  return false;
 }
 
 /**
@@ -186,6 +193,23 @@ export async function createBooking(input: CreateInput, now: number): Promise<Cr
         .limit(1);
 
       if (clash) return { ok: false, reason: 'taken' } as const;
+
+      // A hold that lapsed at this exact start still sits in `uniq_live_slot`
+      // (the index cannot know about the clock), so the slot shows free and
+      // the insert would still be refused. It is dead — `liveAt` already says
+      // so — and this court-day is locked, so release it before claiming.
+      await tx
+        .update(bookingsTable)
+        .set({ status: 'cancelled', expiresAt: null })
+        .where(
+          and(
+            eq(bookingsTable.courtId, input.court),
+            eq(bookingsTable.date, input.date),
+            eq(bookingsTable.startMin, input.start),
+            eq(bookingsTable.status, 'held'),
+            lte(bookingsTable.expiresAt, at),
+          ),
+        );
 
       // Spent in this transaction, under the member's own lock, so the last
       // session cannot be spent twice by two bookings made at once.

@@ -127,6 +127,30 @@ describe('POST /api/bookings — paying now', () => {
     expect(pay.expiresAt!.getTime() - Date.now()).toBeLessThanOrEqual(HOLD_MINUTES * 60_000);
   });
 
+  it('resells a slot whose hold lapsed at the same start', async () => {
+    const slot = await freeSlot(undefined, 90);
+    const first = await body(
+      await book(post('/api/bookings', { ...slot, name: 'Carlton', phone: '0764 859 233' })),
+    );
+    // Ten minutes pass and nobody pays.
+    await db
+      .update(bookings)
+      .set({ expiresAt: new Date(Date.now() - 60_000) })
+      .where(eq(bookings.id, first.id as string));
+
+    const res = await book(post('/api/bookings', { ...slot, name: 'Carlton', phone: '0764 859 233' }));
+    expect(res.status).toBe(201);
+    const [old] = await db.select().from(bookings).where(eq(bookings.id, first.id as string));
+    expect(old.status).toBe('cancelled');
+  });
+
+  it('says taken, not 500, when the slot is genuinely held', async () => {
+    const slot = await freeSlot(undefined, 60);
+    await book(post('/api/bookings', { ...slot, name: 'Asha', phone: '0712 999 000' }));
+    const res = await book(post('/api/bookings', { ...slot, name: 'Juma', phone: '0712 111 222' }));
+    expect(res.status).toBe(409);
+  });
+
   it('charges the same with a coach as without', async () => {
     const slot = await freeSlot(undefined, 60, true);
     const created = await body(
