@@ -2,6 +2,7 @@ import {
   Avatar,
   Badge,
   Btn,
+  ComingSoon,
   Cell,
   Eyebrow,
   Head,
@@ -15,6 +16,7 @@ import {
   type BadgeTone,
   type Col,
 } from '@/components/admin/ui';
+
 import {
   CHALLENGE_DAYS,
   CHALLENGE_SLOTS,
@@ -49,6 +51,18 @@ const stateTone: Record<MatchState, BadgeTone> = {
 };
 
 export default function MatchesPage() {
+  return (
+    <ComingSoon
+      title="Matches and the ladder"
+      blurb="Once members start playing ladder matches, challenges and results will be organised here, and each court they use will show on the court desk."
+    >
+      <Preview />
+    </ComingSoon>
+  );
+}
+
+/** The design as drawn, on sample data. Shown blurred until the club runs this. */
+function Preview() {
   return (
     <Screen>
       <Head

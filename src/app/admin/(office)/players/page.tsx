@@ -1,8 +1,8 @@
-import Roster from '@/components/admin/Roster';
-import { loadRoster } from '@/lib/admin/load';
+import Bookers from '@/components/admin/Bookers';
+import { loadBookers } from '@/lib/admin/load';
 
 export const dynamic = 'force-dynamic';
 
 export default async function PlayersPage() {
-  return <Roster initial={await loadRoster()} />;
+  return <Bookers initial={await loadBookers()} />;
 }

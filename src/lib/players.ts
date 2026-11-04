@@ -381,3 +381,62 @@ export function listCoaches(): Promise<PlayerRow[]> {
     .where(and(eq(players.active, true), eq(players.role, 'coach')))
     .orderBy(asc(players.name));
 }
+
+/**
+ * One visit to the club, as the bookings screen counts them.
+ *
+ * A confirmed court booking or a live place in a class. Held bookings are
+ * left out — an unpaid hold is somebody who might play, and a lapsed one is
+ * somebody who did not — and so are cancellations. Nothing links either table
+ * to a `players` row, so `phone` is what the screen groups by.
+ */
+export type Visit = {
+  kind: 'court' | 'class';
+  name: string;
+  phone: string;
+  date: string;
+  startMin: number;
+  /** Null for a class: the timetable knows its length, the row does not. */
+  endMin: number | null;
+  /** Shillings, counted only once the booking is paid. */
+  paid: number;
+};
+
+/**
+ * Every visit on record, oldest first.
+ *
+ * Unpaged and unaggregated on purpose, for the reason `listPlayers` gives: a
+ * club this size has hundreds of these, not hundreds of thousands, and
+ * grouping in `buildBookers` keeps the counting in one pure, testable place.
+ * Revisit when the bookings table runs to five figures.
+ */
+export async function listVisits(): Promise<Visit[]> {
+  const [courts, classes] = await Promise.all([
+    db
+      .select({
+        name: bookings.name,
+        phone: bookings.phone,
+        date: bookings.date,
+        startMin: bookings.startMin,
+        endMin: bookings.endMin,
+        paid: sql<number>`case when ${bookings.paid} then ${bookings.amount} else 0 end`,
+      })
+      .from(bookings)
+      .where(eq(bookings.status, 'confirmed')),
+    db
+      .select({
+        name: classEnrolments.name,
+        phone: classEnrolments.phone,
+        date: classEnrolments.date,
+        startMin: classEnrolments.startMin,
+        paid: sql<number>`case when ${classEnrolments.paid} then ${classEnrolments.amount} else 0 end`,
+      })
+      .from(classEnrolments)
+      .where(eq(classEnrolments.status, 'booked')),
+  ]);
+
+  return [
+    ...courts.map((r) => ({ ...r, kind: 'court' as const, paid: Number(r.paid) })),
+    ...classes.map((r) => ({ ...r, kind: 'class' as const, endMin: null, paid: Number(r.paid) })),
+  ].sort((a, b) => a.date.localeCompare(b.date) || a.startMin - b.startMin);
+}

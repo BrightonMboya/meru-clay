@@ -80,7 +80,7 @@ export default function AddMember({ roster }: { roster: Roster }) {
     mutationFn: addPlayer,
     // Straight back to the roster, where the row they just created is the
     // thing they wanted to see.
-    onSuccess: () => router.push('/admin/players'),
+    onSuccess: () => router.push('/admin/players/members'),
   });
 
   const ageNumber = age.trim() === '' ? null : Number(age);
@@ -109,10 +109,10 @@ export default function AddMember({ roster }: { roster: Roster }) {
       <Head
         title={coach ? 'Add a coach' : 'Add a member'}
         blurb="Phone is the only thing the club really needs — everything else can be filled in after their first hit."
-        back={{ label: 'Players', href: '/admin/players' }}
+        back={{ label: 'Members', href: '/admin/players/members' }}
         actions={
           <>
-            <Btn href="/admin/players">Cancel</Btn>
+            <Btn href="/admin/players/members">Cancel</Btn>
             <Btn
               variant="primary"
               disabled={save.isPending || name.trim().length < 2}

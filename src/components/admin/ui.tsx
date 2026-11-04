@@ -672,6 +672,47 @@ export function NameCell({ name, sub }: { name: string; sub: string }) {
   );
 }
 
+/* ------------------------------------------------------------- coming soon */
+
+/**
+ * A screen the club does not run yet, shown blurred behind a note saying so.
+ *
+ * The design underneath stays, so the operator can see what the screen will
+ * be — but it is `inert` and blurred, because its figures are sample data and
+ * none of its buttons do anything. Clipped to one viewport so there is no
+ * long blurred page to scroll through.
+ */
+export function ComingSoon({
+  title,
+  blurb,
+  children,
+}: {
+  title: string;
+  blurb: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="relative flex h-svh min-w-0 grow flex-col overflow-hidden">
+      <div
+        inert
+        aria-hidden
+        className="pointer-events-none flex select-none flex-col opacity-70 blur-[6px]"
+      >
+        {children}
+      </div>
+      <div className="absolute inset-0 flex items-start justify-center bg-white/50 px-6 pt-[18vh]">
+        <div className="flex w-full max-w-[460px] flex-col items-start gap-3 rounded-2xl border border-neutral-200 bg-white p-8 shadow-[0_12px_40px_rgba(19,39,29,0.10)]">
+          <Badge tone="clay">COMING SOON</Badge>
+          <h1 className="text-[24px] font-semibold leading-[30px] tracking-[-0.02em] text-pine">
+            {title}
+          </h1>
+          <p className="font-sans text-[14px] leading-[22px] text-neutral-500">{blurb}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------- forms */
 
 /**

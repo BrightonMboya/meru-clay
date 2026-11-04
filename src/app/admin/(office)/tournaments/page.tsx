@@ -1,6 +1,7 @@
 import {
   Badge,
   Btn,
+  ComingSoon,
   Chip,
   Eyebrow,
   Head,
@@ -9,6 +10,7 @@ import {
   icons,
   type BadgeTone,
 } from '@/components/admin/ui';
+
 import {
   AWAY,
   CHAMPION,
@@ -24,6 +26,18 @@ import {
 } from '@/lib/admin/tournaments';
 
 export default function TournamentsPage() {
+  return (
+    <ComingSoon
+      title="Tournaments, once the club runs them"
+      blurb="When Meru Clay hosts its first tournament, this is where you will organise it — entries, the draw, results, and blocking the courts for match days."
+    >
+      <Preview />
+    </ComingSoon>
+  );
+}
+
+/** The design as drawn, on sample data. Shown blurred until the club runs this. */
+function Preview() {
   return (
     <Screen>
       <Head

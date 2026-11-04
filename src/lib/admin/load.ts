@@ -15,7 +15,14 @@ import { deskBookings, hoursByDate, owedOnCourts } from '../bookings';
 import { enrolmentCounts } from '../enrolments';
 import { lastAttendedByPlayer } from '../attendance';
 import { packBalances } from '../packs';
-import { bookedBetween, dueBy, lastPlayedByPhone, listCoaches, listPlayers } from '../players';
+import {
+  bookedBetween,
+  dueBy,
+  lastPlayedByPhone,
+  listCoaches,
+  listPlayers,
+  listVisits,
+} from '../players';
 import { initialsOf } from '../roster';
 import { addDays, isValidDate, nowLocal, weekdayOf } from '../time';
 import {
@@ -43,6 +50,7 @@ import {
   type Funnel,
 } from './leads';
 import { buildRoster, type Roster } from './players';
+import { buildBookers, type Bookers } from './bookers';
 
 /**
  * The court desk for one day, from the database.
@@ -108,6 +116,24 @@ export const loadRoster = cache(async (): Promise<Roster> => {
     packBalances(),
   ]);
   return buildRoster({ today, rows, lastPlayed, attended, bookedThisWeek, packs });
+});
+
+/**
+ * Everybody who has booked a court or a class, and how often they have played.
+ *
+ * The Players screen. Two queries — every visit, and the numbers on the
+ * members roster so a row can say "member" — and `buildBookers` does the
+ * counting. "Played" is measured against the club's clock, not the server's.
+ */
+export const loadBookers = cache(async (): Promise<Bookers> => {
+  const clock = nowLocal();
+  const [visits, members] = await Promise.all([listVisits(), listPlayers()]);
+  return buildBookers({
+    today: clock.date,
+    minutes: clock.minutes,
+    visits,
+    memberPhones: new Set(members.map((m) => m.phone).filter(Boolean)),
+  });
 });
 
 /**

@@ -1,4 +1,4 @@
-import { Btn, Choices, Eyebrow, Fieldset, Head, Screen } from '@/components/admin/ui';
+import { Btn, ComingSoon, Choices, Eyebrow, Fieldset, Head, Screen } from '@/components/admin/ui';
 
 /**
  * Record a result.
@@ -67,6 +67,18 @@ const UNSCORED = [
 ];
 
 export default function RecordResultPage() {
+  return (
+    <ComingSoon
+      title="Recording results"
+      blurb="Scores and ladder moves will be recorded here once the club starts running ladder matches."
+    >
+      <Preview />
+    </ComingSoon>
+  );
+}
+
+/** The design as drawn, on sample data. Shown blurred until the club runs this. */
+function Preview() {
   return (
     <Screen gap={32}>
       <Head

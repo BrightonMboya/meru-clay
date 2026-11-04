@@ -129,8 +129,9 @@ export default function Roster({ initial }: { initial: RosterData }) {
   return (
     <Screen>
       <Head
-        title="Players"
+        title="Members"
         blurb="Levels are set after a hitting assessment and move with ladder results."
+        back={{ label: 'Players', href: '/admin/players' }}
         actions={
           <>
             <Btn icon={icons.list} onClick={() => setMarking(true)}>

@@ -323,7 +323,7 @@ function isDue(row: PlayerRow, today: string): boolean {
  * to sort "recently" from "not for a while", and a precise date would invite
  * arithmetic nobody wants to do down a list of forty.
  */
-function sincePlayed(playedOn: string | undefined, today: string): string {
+export function sincePlayed(playedOn: string | undefined, today: string): string {
   if (!playedOn) return 'Not yet';
 
   const days = Math.round(

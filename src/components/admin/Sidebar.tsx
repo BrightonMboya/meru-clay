@@ -118,31 +118,9 @@ const groups: { heading: string; items: NavItem[] }[] = [
       },
     ],
   },
-  {
-    heading: 'Growth',
-    items: [
-      {
-        label: 'Leads',
-        href: '/admin/leads',
-        icon: (
-          <svg {...iconProps}>
-            <rect x="1.6" y="3.4" width="12.8" height="9.2" rx="1.4" />
-            <path d="M2.4 4.6 8 8.8l5.6-4.2" strokeLinecap="round" />
-          </svg>
-        ),
-      },
-      {
-        label: 'Takings',
-        href: '/admin/takings',
-        icon: (
-          <svg {...iconProps}>
-            <path d="M2.4 13V9.2M6.8 13V4.4M11.2 13V6.8" strokeLinecap="round" />
-            <path d="M1.6 13.6h12.8" strokeLinecap="round" />
-          </svg>
-        ),
-      },
-    ],
-  },
+  // The 'Growth' group — Leads and Takings — is off the rail. Both screens
+  // still exist at /admin/leads and /admin/takings; they are just not
+  // something the club works from day to day yet.
 ];
 
 const heading =
@@ -151,7 +129,7 @@ const heading =
 /**
  * The rail collapses.
  *
- * Expanded it is the nav as drawn — 248px, a crest, three labelled groups,
+ * Expanded it is the nav as drawn — 248px, a crest, two labelled groups,
  * the courts and whoever is on the desk. Collapsed it is a 48px strip of
  * icons: the labels move into tooltips, the court readings and the
  * operator's name fold away, and the crest gives its place to the toggle so
@@ -218,7 +196,12 @@ export default function Sidebar({
             <SidebarGroupContent>
               <SidebarMenu>
                 {group.items.map((item) => {
-                  const active = pathname === item.href;
+                  // A screen's sub-pages (Players → Members roster) keep its
+                  // row lit. The court desk is `/admin` itself, so it only
+                  // matches exactly or it would light up on every screen.
+                  const active =
+                    pathname === item.href ||
+                    (item.href !== '/admin' && pathname.startsWith(`${item.href}/`));
                   return (
                     <SidebarMenuItem key={item.href}>
                       {/* The tooltip only shows itself while collapsed —
