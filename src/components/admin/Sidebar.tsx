@@ -27,6 +27,7 @@ import {
   SidebarRail,
   SidebarSeparator,
   SidebarTrigger,
+  useSidebar,
 } from '@/components/ui/sidebar';
 import type { CourtStatus } from '@/lib/admin/desk';
 
@@ -160,6 +161,11 @@ export default function Sidebar({
   const pathname = usePathname();
   const router = useRouter();
   const [leaving, setLeaving] = useState(false);
+  // On a phone the rail is a sheet over the page. Picking a screen shuts it
+  // straight away, so the page underneath is what loads into view rather
+  // than staying hidden behind a menu that has done its job.
+  const { setOpenMobile } = useSidebar();
+  const closeOnPhone = () => setOpenMobile(false);
 
   async function onSignOut() {
     setLeaving(true);
@@ -219,7 +225,11 @@ export default function Sidebar({
                       {/* The tooltip only shows itself while collapsed —
                           `SidebarMenuButton` hides it the rest of the time. */}
                       <SidebarMenuButton asChild isActive={active} tooltip={item.label}>
-                        <Link href={item.href} aria-current={active ? 'page' : undefined}>
+                        <Link
+                          href={item.href}
+                          aria-current={active ? 'page' : undefined}
+                          onClick={closeOnPhone}
+                        >
                           <span
                             className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center ${
                               active ? 'text-pine' : 'text-neutral-400'
@@ -320,10 +330,14 @@ export default function Sidebar({
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>
-                <Link href="/admin/invite">Invite a colleague</Link>
+                <Link href="/admin/invite" onClick={closeOnPhone}>
+                  Invite a colleague
+                </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link href="/admin/install">Install the app</Link>
+                <Link href="/admin/install" onClick={closeOnPhone}>
+                  Install the app
+                </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
