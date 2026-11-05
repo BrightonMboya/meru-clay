@@ -84,7 +84,9 @@ export async function POST(request: Request) {
         // operator's name would be whatever the library falls back to.
         name: email.split('@')[0],
         callbackURL: '/admin',
-        newUserCallbackURL: '/admin',
+        // A new colleague lands on the install step: the invitation is the
+        // only way to an account, and so the only way to the app.
+        newUserCallbackURL: '/admin/install',
         // Where a refused link lands. The realistic refusal is an invitation
         // withdrawn or expired between sending the mail and opening it, and
         // /admin would bounce a signed-out visitor to the login screen and

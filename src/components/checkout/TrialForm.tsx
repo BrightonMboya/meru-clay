@@ -13,6 +13,7 @@ import {
   type TrialPlayer,
 } from '@/lib/pipeline';
 import { getJson, statusOf } from '@/lib/queries/http';
+import { TRIAL_FEE, fmtTsh } from '@/lib/pricing';
 import { fmtDayLabel, fmtLongDay, fmtTime24 } from '@/lib/time';
 
 /** The ad's own tags, carried onto the lead so the board can say which ad paid. */
@@ -36,8 +37,8 @@ const field =
 type Booked = { id: number; who: string; date: string; start: number };
 
 /**
- * Who, day and time — and that is it: the trial is free, so there is no
- * payment step to lose people on.
+ * Who, day and time — and that is it: the trial is paid in cash at the court
+ * after the session, so there is no payment step to lose people on.
  *
  * Most bookings are a parent booking a child, so that is the default, and it
  * asks for the child's name, age and anything the coach should know. The
@@ -78,7 +79,7 @@ export default function TrialForm({ days }: { days: string[] }) {
       // A Lead the moment a session is booked. Once per trial, so a reload
       // of the same form is not a second lead.
       captureOnce(`trial-${id}`, 'trial_submitted', { player });
-      trackOnce(`trial-${id}`, 'Lead', { content_name: 'Free trial session' }, `lead-trial-${id}`);
+      trackOnce(`trial-${id}`, 'Lead', { content_name: 'Trial session' }, `lead-trial-${id}`);
       setBooked({
         id,
         who: player === 'child' ? String(input.childName) : 'You',
@@ -144,7 +145,8 @@ export default function TrialForm({ days }: { days: string[] }) {
           {fmtTime24(booked.start)}.
         </p>
         <p className="text-[15px] leading-[25px] text-[#3C3F38]">
-          The session is free and runs an hour with our coach. We will WhatsApp you to confirm.
+          The session runs an hour with our coach. Pay TSh {fmtTsh(TRIAL_FEE)} in cash at the court
+          once you have played. We will WhatsApp you to confirm.
           Arrive ten minutes early in trainers and comfortable clothes, and bring water.
         </p>
         {player === 'child' && (
@@ -349,11 +351,14 @@ export default function TrialForm({ days }: { days: string[] }) {
         {busy
           ? 'Booking…'
           : date && start !== null
-            ? `Book free session — ${fmtLongDay(date)}, ${fmtTime24(start)}`
+            ? `Book session — ${fmtLongDay(date)}, ${fmtTime24(start)}`
             : date
               ? 'Pick a time above'
               : 'Pick a day above'}
       </button>
+      <p className="-mt-2 text-[13px] text-[#5C6159]">
+        Nothing to pay now. TSh {fmtTsh(TRIAL_FEE)} cash at the court, after you play.
+      </p>
     </form>
   );
 }

@@ -416,6 +416,25 @@ export async function deskBookings(date: string, now: number): Promise<DeskBooki
 }
 
 /**
+ * The same picture as `deskBookings`, over several days: every live booking
+ * from `from` to `to` inclusive, in the order they happen. What the coach's
+ * Upcoming screen lists.
+ */
+export async function upcomingBookings(
+  from: string,
+  to: string,
+  now: number,
+): Promise<DeskBooking[]> {
+  const rows = await db
+    .select()
+    .from(bookingsTable)
+    .where(and(between(bookingsTable.date, from, to), liveAt(new Date(now))))
+    .orderBy(asc(bookingsTable.date), asc(bookingsTable.startMin), asc(bookingsTable.courtId));
+
+  return rows.map(toDeskBooking);
+}
+
+/**
  * Money the club has earned on court and not collected.
  *
  * Confirmed bookings, on or before today, still unpaid. The three conditions

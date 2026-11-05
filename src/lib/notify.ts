@@ -49,6 +49,7 @@
 
 import { courtName } from './availability';
 import type { Booking } from './bookings';
+import { TRIAL_FEE, fmtTsh } from './pricing';
 import { fmtRange } from './time';
 import type { Reserved } from './trial';
 
@@ -390,13 +391,14 @@ export async function notifyTrial(
 }
 
 /**
- * A free trial, off the ads. It is already on a court; the email is so the
+ * A trial off the ads, paid in cash at the court after the session. It is
+ * already on a court, owing; the email is so the
  * club knows who is coming — for a child, the child's name, age and whatever
  * the parent said the coach should know — and can WhatsApp the parent to
  * confirm. Same rules as `notifyTrial`: never throws, silent while
  * BOOKING_TO_EMAIL is unset.
  */
-export async function notifyFreeTrial(
+export async function notifyCashTrial(
   env: NotifyEnv,
   t: {
     name: string;
@@ -422,6 +424,7 @@ export async function notifyFreeTrial(
     ['Phone', t.phone],
     ['Coming', `${t.day}, ${t.when}`],
     ['Court', `${t.court}, with the coach`],
+    ['To collect', `TSh ${fmtTsh(TRIAL_FEE)} cash, after the session`],
     ['Tennis so far', t.level],
     ['Notes', t.notes ?? '—'],
     ['Ad', t.campaign ?? '—'],
@@ -432,16 +435,16 @@ export async function notifyFreeTrial(
   try {
     await deliver(env, {
       to: env.BOOKING_TO_EMAIL,
-      subject: `Free trial — ${who}, ${t.day} ${t.when.split('–')[0]}`,
+      subject: `Trial — ${who}, ${t.day} ${t.when.split('–')[0]}`,
       text: [
-        t.child ? 'A parent booked a free kids trial.' : 'Somebody booked a free trial.',
+        t.child ? 'A parent booked a kids trial.' : 'Somebody booked a trial.',
         '',
         ...lines.map(([k, v]) => `${k}: ${v}`),
         '',
         next,
       ].join('\n'),
       html: [
-        `<p><strong>${t.child ? 'A parent booked a free kids trial.' : 'Somebody booked a free trial.'}</strong></p>`,
+        `<p><strong>${t.child ? 'A parent booked a kids trial.' : 'Somebody booked a trial.'}</strong></p>`,
         '<table cellpadding="6" cellspacing="0" style="border-collapse:collapse;font:15px system-ui,sans-serif">',
         ...lines.map(
           ([k, v]) =>
@@ -452,7 +455,7 @@ export async function notifyFreeTrial(
       ].join(''),
     });
   } catch (err) {
-    console.error('notify free trial failed:', err);
+    console.error('notify cash trial failed:', err);
   }
 }
 

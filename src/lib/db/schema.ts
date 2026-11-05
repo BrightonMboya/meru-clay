@@ -720,14 +720,14 @@ export const sessionPacks = pgTable(
 export type SessionPackRecord = typeof sessionPacks.$inferSelect;
 
 /**
- * A free trial session, booked off the ads.
+ * A trial session, booked off the ads and paid in cash at the court after.
  *
  * The lead is the grown-up on the phone; this is the hour they booked and,
  * when it is for a child, the child. Kept apart from `leads` because one
  * parent can book two children, and apart from `bookings` because the court
  * sheet has no business knowing a child's age or allergies. `booking_id` is
- * the court it took — set at once, since a free trial is placed the moment
- * it is booked.
+ * the court it took — set at once, since a trial is placed the moment it is
+ * booked. What it owes is on that booking (`amount`, `paid`).
  */
 export const trials = pgTable(
   'trials',

@@ -3,26 +3,26 @@ import Image from 'next/image';
 import Link from 'next/link';
 import TrialForm from '@/components/checkout/TrialForm';
 import Footer from '@/components/marketing/Footer';
-import { TRIAL_WINDOW_DAYS } from '@/lib/pricing';
+import { TRIAL_FEE, TRIAL_WINDOW_DAYS, fmtTsh } from '@/lib/pricing';
 import { closedOn } from '@/lib/schedule';
 import { addDays, nowLocal, weekdayOf } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Your first tennis session, free — Meru Clay, Arusha',
+  title: 'Book your first tennis session — Meru Clay, Arusha',
   description:
-    "Book a free, coached trial session for you or your child at Meru Clay, Tanzania's first true clay court.",
+    "Book a coached trial session for you or your child at Meru Clay, Tanzania's first true clay court. Nothing to pay online — pay cash at the court after you play.",
   alternates: { canonical: '/trial' },
 };
 
 /**
- * The free trial — where the ads land.
+ * The trial session — where the ads land.
  *
  * One screen, one job: who is coming, a day and a time, and the parent's
- * WhatsApp number. Free, because a paid trial lost nearly everybody at the
- * payment prompt; the lead is what the ad is for. Nothing links away from it
- * except the club's WhatsApp.
+ * WhatsApp number. Paid in cash at the court after the session, never online:
+ * a payment prompt up front lost nearly everybody, and the lead is what the
+ * ad is for. Nothing links away from it except the club's WhatsApp.
  *
  * The days are computed here rather than in the browser, so the strip agrees
  * with what `/api/trial` will accept: tomorrow through `TRIAL_WINDOW_DAYS`,
@@ -72,14 +72,15 @@ export default function TrialPage() {
 
           <div className="relative z-10 mx-auto flex w-full max-w-[720px] flex-col px-6 pb-12 pt-16 md:px-10 md:pb-16 md:pt-24">
             <span className="text-[12px] font-bold tracking-[0.18em] text-clay-light">
-              FREE TRIAL SESSION · KIDS &amp; ADULTS
+              TRIAL SESSION · KIDS &amp; ADULTS
             </span>
             <h1 className="pt-4 font-display text-[44px] font-medium leading-[0.98] tracking-[-0.025em] text-cream md:text-[60px]">
-              Your first <span className="italic text-clay-light">tennis</span> session, on us.
+              Your first <span className="italic text-clay-light">tennis</span> session. Pay after you play.
             </h1>
             <p className="max-w-[52ch] pt-5 text-[17px] leading-[28px] text-mist">
               An hour on clay with our coach. Pick a day and a time, tell us
-              who is playing, and we will WhatsApp you to confirm. Nothing to pay.
+              who is playing, and we will WhatsApp you to confirm. Nothing to pay
+              now — TSh {fmtTsh(TRIAL_FEE)} in cash at the court, after the session.
             </p>
           </div>
         </section>
@@ -93,8 +94,9 @@ export default function TrialPage() {
               Ngaramtoni — Arusha.
             </li>
             <li>
-              <strong className="text-[#13271D]">What it costs.</strong> Nothing. The first session
-              is free, and there is no card or mobile money to enter.
+              <strong className="text-[#13271D]">What it costs.</strong> TSh {fmtTsh(TRIAL_FEE)}, paid
+              in cash at the court once you have played. Nothing to pay when you book — no card or
+              mobile money to enter.
             </li>
             <li>
               <strong className="text-[#13271D]">Need to move it?</strong> WhatsApp us and we will

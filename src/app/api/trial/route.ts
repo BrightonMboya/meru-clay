@@ -1,7 +1,7 @@
 import { after } from 'next/server';
 import { isValidStart } from '@/lib/availability';
 import { createLead, leadByPhone, setStage } from '@/lib/leads';
-import { notifyEnv, notifyFreeTrial } from '@/lib/notify';
+import { notifyCashTrial, notifyEnv } from '@/lib/notify';
 import {
   CHILD_AGES,
   TRIAL_LEVELS,
@@ -15,23 +15,24 @@ import { publish } from '@/lib/realtime';
 import { normalisePhone } from '@/lib/roster';
 import { closedOn } from '@/lib/schedule';
 import { addDays, fmtLongDay, fmtTime24, isValidDate, nowLocal, weekdayOf } from '@/lib/time';
-import { TRIAL_MINUTES, TRIALS_PER_NUMBER, bookFreeTrial, trialStartFree } from '@/lib/trial';
+import { TRIAL_MINUTES, TRIALS_PER_NUMBER, bookTrial, trialStartFree } from '@/lib/trial';
 import { withAxiom } from '@/lib/log';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * POST /api/trial — somebody off an ad books a free trial session.
+ * POST /api/trial — somebody off an ad books a trial session.
  *
- * Free, so there is nothing to wait for: the lead is written, the trial
- * takes its court there and then, and the club is emailed who is coming.
+ * Paid in cash at the court after they play, so there is nothing to wait
+ * for: the lead is written, the trial takes its court there and then (owing
+ * `TRIAL_FEE`), and the club is emailed who is coming.
  * Most are a parent booking a child, so the form asks for the child's name,
  * age and anything the coach should know, and the parent is the lead — the
  * number the club WhatsApps.
  *
  * ── Twice ────────────────────────────────────────────────────────────────
  * One live lead per number (`uniq_lead_phone`). The same form sent twice is
- * the same trial (`bookFreeTrial` finds it); a second child from the same
+ * the same trial (`bookTrial` finds it); a second child from the same
  * parent is a second trial, up to `TRIALS_PER_NUMBER` still to come.
  */
 export const POST = withAxiom(async function POST(request: Request) {
@@ -60,15 +61,15 @@ export const POST = withAxiom(async function POST(request: Request) {
           campaign: input.campaign,
           note:
             input.player === 'child'
-              ? `Free kids trial form, for ${input.childName} (${input.childAge}).`
-              : 'Free trial form.',
+              ? `Kids trial form, for ${input.childName} (${input.childAge}).`
+              : 'Trial form.',
         })) ??
         // Lost the race to a second tap; the winner's row is the lead.
         (await leadByPhone(input.phone));
       if (!lead) throw new Error(`lead for ${input.phone} neither created nor found`);
     }
 
-    const booked = await bookFreeTrial({ leadId: lead.id, ...input });
+    const booked = await bookTrial({ leadId: lead.id, ...input });
     if (!booked.ok) {
       return booked.reason === 'taken'
         ? json({ error: 'That time has just been taken. Pick another.' }, 409)
@@ -85,7 +86,7 @@ export const POST = withAxiom(async function POST(request: Request) {
       const campaign = lead.campaign;
       after(async () => {
         await publish(lead.id).catch(() => {});
-        await notifyFreeTrial(notifyEnv(), {
+        await notifyCashTrial(notifyEnv(), {
           name: input.name,
           phone: input.phone,
           day: fmtLongDay(input.date),

@@ -31,9 +31,13 @@ export function totalFor(duration: Duration, withCoach: boolean): number {
 }
 
 /**
- * How far ahead somebody can pick their trial day, starting tomorrow. The
- * trial off the ads — /trial — is free; see src/lib/trial.ts.
+ * The trial session off the ads — /trial. Nothing is taken online: they play
+ * first and pay this in cash at the court afterwards, so it goes on the desk
+ * as owed and is marked paid when the money is in hand. See src/lib/trial.ts.
  */
+export const TRIAL_FEE = 15_000;
+
+/** How far ahead somebody can pick their trial day, starting tomorrow. */
 export const TRIAL_WINDOW_DAYS = 21;
 
 /** 30000 → "30,000". Plain grouping; the currency is stated once in the UI. */

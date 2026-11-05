@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { cookies } from 'next/headers';
+import RegisterSW from '@/components/admin/RegisterSW';
 import Sidebar from '@/components/admin/Sidebar';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { Toaster } from '@/components/ui/sonner';
@@ -21,6 +22,20 @@ export const metadata: Metadata = {
   title: 'Club office — Meru Clay',
   // Staff-only, and listed nowhere.
   robots: { index: false, follow: false },
+  /**
+   * The office is an installable app — but only from in here. The manifest
+   * link and the service worker live on this layout, which nobody reaches
+   * without a session, and a session needs an invitation (see
+   * `validateUserInfo` in src/lib/auth.ts). The sign-in screens and the public
+   * site carry neither, so nobody is offered "Install" before they are in.
+   * See public/admin.webmanifest, public/sw.js and /admin/install.
+   */
+  manifest: '/admin.webmanifest',
+  appleWebApp: {
+    capable: true,
+    title: 'Meru Clay',
+    statusBarStyle: 'default',
+  },
 };
 
 /**
@@ -80,6 +95,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             app and would fall through to "system" — a dark toast over a white
             office. The club has no dark mode. */}
         <Toaster theme="light" position="bottom-right" />
+        <RegisterSW />
       </SidebarProvider>
     </TooltipProvider>
   );

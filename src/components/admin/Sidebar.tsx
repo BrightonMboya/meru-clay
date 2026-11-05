@@ -65,6 +65,15 @@ const groups: { heading: string; items: NavItem[] }[] = [
           </svg>
         ),
       },
+      {
+        label: 'Upcoming',
+        href: '/admin/upcoming',
+        icon: (
+          <svg {...iconProps}>
+            <path d="M2.4 3.6h11.2M2.4 8h11.2M2.4 12.4h7" strokeLinecap="round" />
+          </svg>
+        ),
+      },
     ],
   },
   {
@@ -155,6 +164,9 @@ export default function Sidebar({
   async function onSignOut() {
     setLeaving(true);
     await signOut();
+    // The installed app keeps the last Upcoming list for when there is no
+    // signal (public/sw.js). Names and numbers should not outlive the session.
+    if ('caches' in window) await caches.delete('meru-office-v1').catch(() => false);
     // `replace`, so the back button does not return to a screen the session
     // behind it no longer opens; `refresh` to drop the server-rendered shell
     // that still holds the old operator's name.
@@ -309,6 +321,9 @@ export default function Sidebar({
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>
                 <Link href="/admin/invite">Invite a colleague</Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/admin/install">Install the app</Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem

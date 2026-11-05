@@ -5,19 +5,22 @@
  * so it asks availability only which starts have a court free. The visitor
  * picks one of those.
  *
- * Trials are free: `bookFreeTrial` takes the court the moment the form is
- * sent, and the trial row records who is coming. The paid trial it replaced
- * took its court only once the money was in, by `reserveTrial`; that stays
- * for payments opened before the switch, which can still settle.
+ * Trials are paid in cash at the court, after the session: `bookTrial` takes
+ * the court the moment the form is sent, owing `TRIAL_FEE`, and the trial row
+ * records who is coming. The desk marks it paid when the cash is in hand. The
+ * online-paid trial before it took its court only once the money was in, by
+ * `reserveTrial`; that stays for payments opened back then, which can still
+ * settle.
  */
 
-import { and, eq, gte } from 'drizzle-orm';
+import { and, asc, between, eq, gte } from 'drizzle-orm';
 import { NOTICE_MINUTES, courtName, earliestStart, freeSlots, occupancy } from './availability';
 import { blocksOn, createBooking, getBooking, liveBookings, type Booking } from './bookings';
 import { db } from './db/client';
-import { trials, type TrialRecord } from './db/schema';
+import { leads, trials, type TrialRecord } from './db/schema';
 import type { Payment } from './payments';
 import { TRIAL_LEVEL_LABELS, type TrialLevel, type TrialPlayer } from './pipeline';
+import { TRIAL_FEE, fmtTsh } from './pricing';
 import { fmtTime24, nowLocal, type LocalNow } from './time';
 
 /** "Your first hour": a trial is always this long, and always coached. */
@@ -46,7 +49,7 @@ export type Reserved =
 
 /**
  * Put a paid trial on a court, confirmed and paid — for payments opened
- * before trials went free. Never throws: the trial is paid either way, and
+ * before trials moved to cash at the court. Never throws: the trial is paid either way, and
  * the desk can place it by hand from the reason.
  */
 export async function reserveTrial(p: Payment): Promise<Reserved> {
@@ -60,6 +63,7 @@ export async function reserveTrial(p: Payment): Promise<Reserved> {
       name: p.name,
       phone: p.phone,
       notes: `Paid trial, with the coach (${p.id.slice(0, 8)})`,
+      owes: 0,
     });
     if (made) return { ok: true, court: courtName(made.court_id), when };
   } catch (err) {
@@ -70,18 +74,19 @@ export async function reserveTrial(p: Payment): Promise<Reserved> {
 }
 
 /**
- * Take the first free court for a trial hour, confirmed and settled.
+ * Take the first free court for a trial hour, confirmed.
  *
- * Priced at nothing and marked paid, so the desk never chases it: a free
- * trial owes nothing, and a paid one's money is on its payment. Not marked
- * as coached either: that flag makes a booking take the coach off every
- * court, and a trial never does. Tries each free court, so losing a race on
- * one falls through to the other. Null when none is left.
+ * `owes` is what is still to collect at the court. A cash trial owes
+ * `TRIAL_FEE`, so it sits on the desk unpaid — counted in "still owed" until
+ * somebody marks it paid. An online-paid one owes nothing: its money is on its
+ * payment. Not marked as coached either: that flag makes a booking take the
+ * coach off every court, and a trial never does. Tries each free court, so
+ * losing a race on one falls through to the other. Null when none is left.
  */
 async function placeOnCourt(
   date: string,
   start: number,
-  who: { name: string; phone: string; notes: string },
+  { owes, ...who }: { name: string; phone: string; notes: string; owes: number },
 ): Promise<Booking | null> {
   for (const court of await courtsFreeAt(date, start, nowLocal())) {
     const made = await createBooking(
@@ -92,8 +97,8 @@ async function placeOnCourt(
         duration: TRIAL_MINUTES,
         ...who,
         confirmed: true,
-        paid: true,
-        amount: 0,
+        paid: owes === 0,
+        amount: owes,
       },
       Date.now(),
     );
@@ -105,7 +110,7 @@ async function placeOnCourt(
 /**
  * How many upcoming trials one number may hold. Enough for a parent with
  * three children; few enough that a stranger cannot fill a week of courts
- * for free from one phone.
+ * from one phone without paying a shilling up front.
  */
 export const TRIALS_PER_NUMBER = 3;
 
@@ -128,14 +133,15 @@ export type BookedTrial =
   | { ok: false; reason: 'taken' | 'too-many' };
 
 /**
- * Book a free trial: put it on a court and write down who is coming.
+ * Book a trial: put it on a court, owing `TRIAL_FEE` in cash, and write down
+ * who is coming.
  *
  * Sending the same form twice — a double tap, or a reload — finds the trial
  * already there rather than taking a second court. Anything else from the
  * same number is another trial, which is how a parent books two children,
  * up to `TRIALS_PER_NUMBER` still to come.
  */
-export async function bookFreeTrial(r: TrialRequest): Promise<BookedTrial> {
+export async function bookTrial(r: TrialRequest): Promise<BookedTrial> {
   const today = nowLocal().date;
   const upcoming = await db
     .select()
@@ -156,6 +162,7 @@ export async function bookFreeTrial(r: TrialRequest): Promise<BookedTrial> {
     name: r.player === 'child' ? `${r.childName} (${r.childAge}) — ${r.name}` : r.name,
     phone: r.phone,
     notes: trialNotes(r),
+    owes: TRIAL_FEE,
   });
   if (!booking) return { ok: false, reason: 'taken' };
 
@@ -182,7 +189,8 @@ export function trialNotes(
   r: Pick<TrialRequest, 'player' | 'childAge' | 'level' | 'notes' | 'name'>,
 ): string {
   return [
-    r.player === 'child' ? `Free kids trial, age ${r.childAge}. Parent: ${r.name}` : 'Free trial',
+    r.player === 'child' ? `Kids trial, age ${r.childAge}. Parent: ${r.name}` : 'Trial',
+    `Pays TSh ${fmtTsh(TRIAL_FEE)} cash after`,
     TRIAL_LEVEL_LABELS[r.level],
     r.notes,
   ]
@@ -193,4 +201,18 @@ export function trialNotes(
 async function courtOf(t: TrialRecord): Promise<string> {
   const b = t.bookingId ? await getBooking(t.bookingId) : null;
   return b ? courtName(b.court_id) : '';
+}
+
+/** A trial, with the grown-up who booked it — what the coach needs to know. */
+export type TrialForCoach = TrialRecord & { parentName: string };
+
+/** Every trial from `from` to `to` inclusive, with the booker's name. */
+export async function trialsBetween(from: string, to: string): Promise<TrialForCoach[]> {
+  const rows = await db
+    .select({ trial: trials, parentName: leads.name })
+    .from(trials)
+    .innerJoin(leads, eq(leads.id, trials.leadId))
+    .where(between(trials.date, from, to))
+    .orderBy(asc(trials.date), asc(trials.startMin));
+  return rows.map((r) => ({ ...r.trial, parentName: r.parentName }));
 }

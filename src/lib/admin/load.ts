@@ -11,8 +11,9 @@ import {
   messageTotals,
   sentToday,
 } from '../leads';
-import { deskBookings, hoursByDate, owedOnCourts } from '../bookings';
-import { enrolmentCounts } from '../enrolments';
+import { deskBookings, hoursByDate, owedOnCourts, upcomingBookings } from '../bookings';
+import { enrolmentCounts, enrolmentsBetween } from '../enrolments';
+import { trialsBetween } from '../trial';
 import { lastAttendedByPlayer } from '../attendance';
 import { packBalances } from '../packs';
 import {
@@ -51,6 +52,7 @@ import {
 } from './leads';
 import { buildRoster, type Roster } from './players';
 import { buildBookers, type Bookers } from './bookers';
+import { buildUpcoming, upcomingDates, type Upcoming } from './upcoming';
 
 /**
  * The court desk for one day, from the database.
@@ -91,6 +93,25 @@ export const loadDesk = cache(async (date?: string): Promise<Desk> => {
     hoursByDay,
     enrolments,
   });
+});
+
+/**
+ * The coach's next few days, from the database: live bookings, the trials
+ * behind some of them, and the class registers. `buildUpcoming` arranges.
+ */
+export const loadUpcoming = cache(async (): Promise<Upcoming> => {
+  const clock = nowLocal();
+  const dates = upcomingDates(clock.date);
+  const from = dates[0];
+  const to = dates[dates.length - 1];
+
+  const [bookings, trials, enrolments] = await Promise.all([
+    upcomingBookings(from, to, clock.epochMs),
+    trialsBetween(from, to),
+    enrolmentsBetween(from, to),
+  ]);
+
+  return buildUpcoming({ today: clock.date, nowMin: clock.minutes, bookings, trials, enrolments });
 });
 
 /**

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { POST as trial } from '@/app/api/trial/route';
 import { db } from '@/lib/db/client';
 import { bookings, leads, payments, trials } from '@/lib/db/schema';
+import { TRIAL_FEE } from '@/lib/pricing';
 import { freeSlots, makeLead, post, reset } from './helpers';
 
 beforeEach(reset);
@@ -21,7 +22,7 @@ const kid = {
 };
 
 describe('POST /api/trial', () => {
-  it('books a free kids trial on a court, with no payment, and records the child', async () => {
+  it('books a kids trial on a court, owing cash at the court, and records the child', async () => {
     const [slot] = await freeSlots();
     const res = await trial(post('/api/trial', { ...kid, date: slot.date, start: slot.start }));
     expect(res.status).toBe(201);
@@ -39,7 +40,13 @@ describe('POST /api/trial', () => {
     });
 
     const [b] = await db.select().from(bookings).where(eq(bookings.id, t.bookingId!));
-    expect(b).toMatchObject({ status: 'confirmed', paid: true, amount: 0, coach: false, phone: '+255754000111' });
+    expect(b).toMatchObject({
+      status: 'confirmed',
+      paid: false,
+      amount: TRIAL_FEE,
+      coach: false,
+      phone: '+255754000111',
+    });
     expect(b.notes).toContain('age 8');
 
     const [lead] = await db.select().from(leads);

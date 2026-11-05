@@ -11,7 +11,7 @@
  * changes what the desk knows and nothing about what /book can sell.
  */
 
-import { and, asc, eq, gte, lte, sql } from 'drizzle-orm';
+import { and, asc, between, eq, gte, lte, sql } from 'drizzle-orm';
 import { db, type Executor } from './db/client';
 import { classEnrolments } from './db/schema';
 import { classKey } from './schedule';
@@ -63,6 +63,22 @@ export async function classRoll(
         eq(classEnrolments.date, date),
         eq(classEnrolments.courtId, court),
         eq(classEnrolments.startMin, startMin),
+        eq(classEnrolments.status, 'booked'),
+      ),
+    )
+    .orderBy(asc(classEnrolments.createdAt));
+
+  return rows.map(toEnrolment);
+}
+
+/** Every place taken in a class from `from` to `to` inclusive, in sign-up order. */
+export async function enrolmentsBetween(from: string, to: string): Promise<Enrolment[]> {
+  const rows = await db
+    .select()
+    .from(classEnrolments)
+    .where(
+      and(
+        between(classEnrolments.date, from, to),
         eq(classEnrolments.status, 'booked'),
       ),
     )

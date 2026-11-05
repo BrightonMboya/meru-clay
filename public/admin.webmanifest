@@ -1,0 +1,20 @@
+{
+  "id": "/admin",
+  "name": "Meru Clay — Club office",
+  "short_name": "Meru Clay",
+  "description": "Who is on court at Meru Clay: upcoming sessions, trials and cash to collect.",
+  "start_url": "/admin/upcoming",
+  "scope": "/admin",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#13271D",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ],
+  "shortcuts": [
+    { "name": "Upcoming", "url": "/admin/upcoming" },
+    { "name": "Court desk", "url": "/admin" }
+  ]
+}

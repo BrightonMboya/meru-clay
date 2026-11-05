@@ -9,6 +9,24 @@ const nextConfig: NextConfig = {
   // src/instrumentation-client.ts. PostHog's API paths end in a slash, which
   // Next would otherwise redirect away.
   skipTrailingSlashRedirect: true,
+  // The club office's service worker and manifest — see public/sw.js. The
+  // worker must never be cached, or a fix to it waits on a browser's whim.
+  async headers() {
+    return [
+      {
+        source: '/sw.js',
+        headers: [
+          { key: 'Content-Type', value: 'application/javascript; charset=utf-8' },
+          { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
+          { key: 'Content-Security-Policy', value: "default-src 'self'; script-src 'self'" },
+        ],
+      },
+      {
+        source: '/admin.webmanifest',
+        headers: [{ key: 'Content-Type', value: 'application/manifest+json' }],
+      },
+    ];
+  },
   async rewrites() {
     return [
       { source: '/ingest/static/:path*', destination: 'https://us-assets.i.posthog.com/static/:path*' },
